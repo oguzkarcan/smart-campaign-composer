@@ -81,6 +81,20 @@ appended at the bottom of each section.
 
 - **`/metrics` in Prometheus text format**, `/health` checks the DB connection.
 
+## Setup
+
+- **One backend image, four binaries.** `backend/Dockerfile` builds everything
+  under `cmd/`; each compose service picks its binary with `command`. One build,
+  one cached image.
+- **Migrations run with the `migrate/migrate` image** as a one-shot compose
+  service; `seed`, `api` and `worker` wait for it to complete successfully.
+  Plain SQL files, no custom migration code.
+- **Postgres healthcheck uses TCP** (`pg_isready -h 127.0.0.1`). On first boot
+  the image's init server listens only on a Unix socket, so a socket check
+  reports healthy before the real server accepts connections.
+- **Compose works without a `.env` file**; every variable has a mock-mode
+  default.
+
 ## Repository
 
 - **Default branch `main`.**

@@ -1,0 +1,91 @@
+# One-command setup: docker compose up
+# Works without a .env file; values below fall back to mock-mode defaults.
+
+x-backend: &backend
+  build: ./backend
+  image: scc-backend
+  restart: unless-stopped
+  environment:
+    DATABASE_URL: postgres://${POSTGRES_USER:-scc}:${POSTGRES_PASSWORD:-scc}@postgres:5432/${POSTGRES_DB:-scc}?sslmode=disable
+    PROVIDER_URL: http://mockprovider:9090
+    HTTP_ADDR: :8080
+    LLM_MODE: ${LLM_MODE:-mock}
+    CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-sonnet-5-5}
+    ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-scc}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-scc}
+      POSTGRES_DB: ${POSTGRES_DB:-scc}
+    ports:
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # Check over TCP: during first-boot init Postgres only listens on a Unix
+      # socket, so a socket check reports healthy too early.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  migrate:
+    image: migrate/migrate:v4.18.1
+    command:
+      - -path=/migrations
+      - -database=postgres://${POSTGRES_USER:-scc}:${POSTGRES_PASSWORD:-scc}@postgres:5432/${POSTGRES_DB:-scc}?sslmode=disable
+      - up
+    volumes:
+      - ./backend/migrations:/migrations:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  seed:
+    <<: *backend
+    command: ["/app/seed"]
+    restart: "no"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  mockprovider:
+    <<: *backend
+    command: ["/app/mockprovider"]
+    ports:
+      - "9090:9090"
+    depends_on: []
+
+  api:
+    <<: *backend
+    command: ["/app/api"]
+    ports:
+      - "8080:8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    <<: *backend
+    command: ["/app/worker"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      mockprovider:
+        condition: service_started
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
