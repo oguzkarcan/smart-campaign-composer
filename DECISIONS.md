@@ -105,6 +105,26 @@ appended at the bottom of each section.
   (`status IN ('queued','retry')`) and expired leases (`status = 'processing'`)
   stay small no matter how many messages have been sent.
 
+## Seed data
+
+- **Deterministic generator, separate from loading.** `internal/seed` is pure
+  (fixed random seed → same users and events) and unit-tested without a
+  database; the loader just bulk-inserts with `COPY`.
+- **Timestamps are relative to the time of seeding**, so rules like "last 30
+  days" keep matching whenever the stack starts. Only the absolute times differ
+  between runs, not the shape of the data.
+- **Seeding is idempotent.** The seed job runs on every `docker compose up`; it
+  takes a table lock and does nothing if users already exist.
+- **Shape:** 5,000 users, about 80% Turkish / 20% English, cities weighted
+  towards İstanbul, independent email (70%) and SMS (55%) consent so all four
+  combinations occur, about 25% inactive users. Users browse in sessions; some
+  sessions add to cart and fewer than half of carts convert, which produces
+  realistic abandoned carts. With the default seed the case's example brief
+  matches 230 users (before consent filtering).
+- **Names keep Turkish diacritics** and include compound names ("Muhammed
+  Emin"), so worst-case `{{first_name}}` length checks and Turkish text handling
+  are exercised. Emails are ASCII-folded and use `example.com`.
+
 ## Setup
 
 - **One backend image, four binaries.** `backend/Dockerfile` builds everything
