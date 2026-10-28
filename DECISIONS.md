@@ -81,6 +81,30 @@ appended at the bottom of each section.
 
 - **`/metrics` in Prometheus text format**, `/health` checks the DB connection.
 
+## Schema
+
+- **`text` + `CHECK` instead of Postgres enums** for statuses, channels and event
+  types: easier to change in later migrations, same safety.
+- **Invariants are also enforced in the database**, as a backstop to the Go code:
+  unique (campaign, user, channel) per message, SMS body ≤ 160 and email subject
+  ≤ 80 characters on the raw template, SMS has no subject, `processing` requires
+  a lease, `sent` requires `sent_at`, approved campaigns require `approved_at`.
+  The worst-case length after variable expansion is checked in Go, because it
+  depends on the audience.
+- **`user_events` table instead of summary columns on `users`.** Rules like "added
+  to cart in the last 30 days but did not purchase" need event times; the
+  segment compiler emits `EXISTS` / `NOT EXISTS` subqueries served by an index on
+  `(user_id, type, occurred_at)`.
+- **`campaign_contents` holds only the current content per channel**
+  (`UNIQUE(campaign_id, channel)`, `version` counter); every generated version is
+  kept in `llm_generations`.
+- **Messages are not stored rendered.** Content is locked after approval and
+  rendering is deterministic, so the worker renders at send time and retries send
+  the same payload.
+- **Partial indexes for the worker**: due messages per channel
+  (`status IN ('queued','retry')`) and expired leases (`status = 'processing'`)
+  stay small no matter how many messages have been sent.
+
 ## Setup
 
 - **One backend image, four binaries.** `backend/Dockerfile` builds everything
