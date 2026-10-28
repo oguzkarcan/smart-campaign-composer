@@ -1,0 +1,19 @@
+# Secrets
+.env
+
+# Personal planning notes
+plan.txt
+
+# Go
+/backend/bin/
+*.test
+coverage.out
+
+# Frontend
+node_modules/
+/frontend/dist/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
