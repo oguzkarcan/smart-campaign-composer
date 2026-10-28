@@ -12,20 +12,37 @@ import (
 	"time"
 
 	"github.com/oguzkarcan/smart-campaign-composer/backend/internal/config"
+	"github.com/oguzkarcan/smart-campaign-composer/backend/internal/httpapi"
+	"github.com/oguzkarcan/smart-campaign-composer/backend/internal/store"
 )
 
 func main() {
+	if err := run(); err != nil {
+		slog.Error("api failed", "err", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	cfg, err := config.Load()
 	if err != nil {
-		slog.Error("load config", "err", err)
-		os.Exit(1)
+		return err
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	mux := http.NewServeMux()
-	srv := &http.Server{Addr: cfg.HTTPAddr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	pool, err := store.Connect(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+
+	srv := &http.Server{
+		Addr:              cfg.HTTPAddr,
+		Handler:           httpapi.New(pool).Handler(),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
 
 	go func() {
 		<-ctx.Done()
@@ -34,9 +51,9 @@ func main() {
 		_ = srv.Shutdown(shutdownCtx)
 	}()
 
-	slog.Info("api listening", "addr", cfg.HTTPAddr, "llm_mode", cfg.LLMMode)
+	slog.Info("api listening", "addr", cfg.HTTPAddr, "llm_mode", cfg.LLMMode, "model", cfg.ClaudeModel)
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		slog.Error("api server", "err", err)
-		os.Exit(1)
+		return err
 	}
+	return nil
 }

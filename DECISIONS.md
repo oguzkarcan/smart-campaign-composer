@@ -104,6 +104,10 @@ appended at the bottom of each section.
 ## Observability
 
 - **`/metrics` in Prometheus text format**, `/health` checks the DB connection.
+- **`/health` returns 503 when Postgres is unreachable** (2 s ping timeout), not
+  just "process is up": an API that cannot reach its database cannot do any
+  useful work. The pool reconnects on its own, so health recovers without a
+  restart. Compose uses it as the API healthcheck, and the frontend waits for it.
 
 ## Schema
 
