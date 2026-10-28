@@ -77,6 +77,30 @@ appended at the bottom of each section.
 - **`message_attempts`** records every provider call (status code, error,
   latency) for metrics and debugging.
 
+## Mock provider
+
+- **Behaves like a real provider, with tunable failure rates** (`MOCK_*`
+  variables, defaults: 3% random 429, 5% random 500/503, 1% lost responses,
+  20–150 ms latency, 1% slow 3 s responses).
+- **Real rate limit, not just random 429s:** a per-channel token bucket (100/s,
+  burst 100). Every 429 carries `Retry-After`, so the worker's limiter and
+  `Retry-After` handling are tested against actual pressure.
+- **Idempotency key required.** A repeated key with the same payload returns
+  the original result (`Idempotent-Replayed: true`); with a different payload it
+  returns 409. Replays are answered before rate limiting and failure injection,
+  as providers that cache the first response do.
+- **Lost responses:** the message is accepted but the client gets a 500. This is
+  the case that makes a provider-side idempotency key necessary; a retry with
+  the same key is replayed, not delivered twice.
+- **Duplicate-delivery counter:** `/stats` counts identical recipient + content
+  accepted under different keys. It must stay 0; it is the end-to-end evidence
+  for "nobody receives the same message twice".
+- **Validates like a provider:** E.164 phone, email format, SMS ≤ 160
+  characters (counted as characters, not bytes), subject ≤ 80. A sender bug
+  surfaces as a permanent 400.
+- **In-memory state.** Restarting the provider forgets keys; acceptable for a
+  mock, and `POST /reset` clears it for demos and tests.
+
 ## Observability
 
 - **`/metrics` in Prometheus text format**, `/health` checks the DB connection.

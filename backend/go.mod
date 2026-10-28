@@ -1,8 +1,11 @@
 module github.com/oguzkarcan/smart-campaign-composer/backend
 
-go 1.26
+go 1.26.0
 
-require github.com/jackc/pgx/v5 v5.7.5
+require (
+	github.com/jackc/pgx/v5 v5.7.5
+	golang.org/x/time v0.11.0
+)
 
 require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect

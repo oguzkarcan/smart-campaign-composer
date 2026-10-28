@@ -57,9 +57,26 @@ services:
   mockprovider:
     <<: *backend
     command: ["/app/mockprovider"]
+    # Replaces the shared backend environment: the provider needs no DB or LLM.
+    environment:
+      MOCK_RATE_PER_SEC: ${MOCK_RATE_PER_SEC:-100}
+      MOCK_BURST: ${MOCK_BURST:-100}
+      MOCK_RETRY_AFTER: ${MOCK_RETRY_AFTER:-1s}
+      MOCK_THROTTLE_RATE: ${MOCK_THROTTLE_RATE:-0.03}
+      MOCK_ERROR_RATE: ${MOCK_ERROR_RATE:-0.05}
+      MOCK_LOST_RESPONSE_RATE: ${MOCK_LOST_RESPONSE_RATE:-0.01}
+      MOCK_MIN_LATENCY: ${MOCK_MIN_LATENCY:-20ms}
+      MOCK_MAX_LATENCY: ${MOCK_MAX_LATENCY:-150ms}
+      MOCK_SLOW_RATE: ${MOCK_SLOW_RATE:-0.01}
+      MOCK_SLOW_LATENCY: ${MOCK_SLOW_LATENCY:-3s}
     ports:
       - "9090:9090"
     depends_on: []
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/health"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
 
   api:
     <<: *backend
@@ -77,7 +94,7 @@ services:
       migrate:
         condition: service_completed_successfully
       mockprovider:
-        condition: service_started
+        condition: service_healthy
 
   frontend:
     build: ./frontend
