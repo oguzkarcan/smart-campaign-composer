@@ -23,6 +23,9 @@ func TestMockSegmentExampleBrief(t *testing.T) {
 	}
 	for _, brief := range []string{
 		"Son 30 günde sepete ürün ekleyip satın almayan İstanbul'daki kullanıcılara hatırlatma gönder",
+		// The exact wording of the case document.
+		"Son 30 günde sepetine ürün ekleyip alışveriş yapmayan İstanbul'daki kullanıcılara %30 indirim hatırlatması gönder.",
+		"Sepetine ürün ekleyip alışveriş yapmamış İstanbul kullanıcıları",
 		"Users in Istanbul who added to cart in the last 30 days but did not purchase",
 	} {
 		t.Run(brief, func(t *testing.T) {
@@ -42,6 +45,10 @@ func TestMockSegmentVariants(t *testing.T) {
 		{"Everyone", `{"match": "all", "conditions": []}`},
 		{"Ankara ve İzmir'de son 7 günde ziyaret eden kullanıcılar",
 			`{"match": "all", "conditions": [{"field": "city", "op": "in", "value": ["Ankara", "İzmir"]}, {"event": "page_view", "within_days": 7, "exists": true}]}`},
+		{"Son 60 günde alışveriş yapan Ankara kullanıcıları",
+			`{"match": "all", "conditions": [{"field": "city", "op": "eq", "value": "Ankara"}, {"event": "purchase", "within_days": 60, "exists": true}]}`},
+		{"Alışveriş yapmış müşteriler",
+			`{"match": "all", "conditions": [{"event": "purchase", "within_days": 30, "exists": true}]}`},
 		{"Customers who purchased in the last 90 days",
 			`{"match": "all", "conditions": [{"event": "purchase", "within_days": 90, "exists": true}]}`},
 		{"İngilizce konuşan İstanbul kullanıcıları",

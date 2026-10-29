@@ -96,6 +96,13 @@ func TestCreateCampaign(t *testing.T) {
 	}
 }
 
+func TestCreateCampaignAcceptsTrailingWhitespace(t *testing.T) {
+	h, _ := newTestAPI(&llm.Mock{})
+	if w := do(t, h, "POST", "/campaigns", "{\"brief\": \"x\", \"channels\": [\"sms\"]}\n\t "); w.Code != http.StatusCreated {
+		t.Fatalf("%d %s", w.Code, w.Body)
+	}
+}
+
 func TestCreateCampaignRejectsBadInput(t *testing.T) {
 	h, _ := newTestAPI(&llm.Mock{})
 	for _, body := range []string{
@@ -103,6 +110,9 @@ func TestCreateCampaignRejectsBadInput(t *testing.T) {
 		`{"brief": "", "channels": ["sms"]}`,
 		`{"brief": "x", "channels": ["sms"], "segment_rule": {}}`, // the rule is never accepted from clients
 		`not json`,
+		`{"brief": "x", "channels": ["sms"]} {"brief": "y"}`, // a second object
+		`{"brief": "x", "channels": ["sms"]}}`,               // a stray brace
+		`{"brief": "x", "channels": ["sms"]} trailing`,
 	} {
 		w := do(t, h, "POST", "/campaigns", body)
 		if w.Code != http.StatusBadRequest || decodeBody[errorResponse](t, w).Error == "" {
@@ -250,6 +260,7 @@ func TestEditContent(t *testing.T) {
 		{"/campaigns/1/content/email", `{"subject": "", "body": "b"}`, http.StatusUnprocessableEntity},
 		{"/campaigns/1/content/push", `{"body": "Hi"}`, http.StatusBadRequest},
 		{"/campaigns/1/content/sms", `{"body": "Hi", "human_edited": false}`, http.StatusBadRequest},
+		{"/campaigns/1/content/sms", `{"body": "Hi"}]`, http.StatusBadRequest},
 		{"/campaigns/9/content/sms", `{"body": "Hi"}`, http.StatusNotFound},
 	}
 	for _, tt := range tests {

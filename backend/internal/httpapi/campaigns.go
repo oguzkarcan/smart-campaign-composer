@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -140,11 +141,19 @@ func pathID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	return id, true
 }
 
-// decode reads a small JSON body strictly: unknown fields are an error.
+// decode reads a small JSON body strictly: unknown fields and anything after
+// the object are an error. Decoding a second value and requiring io.EOF also
+// catches a stray "}" or "]", which dec.More() would not report.
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBodyBytes))
 	dec.DisallowUnknownFields()
-	if err := dec.Decode(v); err != nil {
+	err := dec.Decode(v)
+	if err == nil {
+		if extra := dec.Decode(&json.RawMessage{}); extra != io.EOF {
+			err = errors.New("unexpected data after the JSON object")
+		}
+	}
+	if err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid request body: " + err.Error()})
 		return false
 	}

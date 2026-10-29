@@ -115,10 +115,12 @@ func mockSegment(in SegmentInput) segment.Rule {
 		rule.Conditions = append(rule.Conditions, event("cart_add", true))
 	}
 	switch {
-	case containsAny(brief, "satin almayan", "satin almamis", "almayan", "almamis", "did not purchase",
+	case containsAny(brief, "satin almayan", "satin almamis", "almayan", "almamis",
+		"alisveris yapmayan", "alisveris yapmamis", "did not purchase",
 		"didn't purchase", "not purchased", "no purchase", "without purchas", "didn't buy", "did not buy"):
 		rule.Conditions = append(rule.Conditions, event("purchase", false))
-	case containsAny(brief, "satin alan", "satin almis", "purchased", "bought", "customers who buy"):
+	case containsAny(brief, "satin alan", "satin almis", "alisveris yapan", "alisveris yapmis",
+		"purchased", "bought", "customers who buy"):
 		rule.Conditions = append(rule.Conditions, event("purchase", true))
 	}
 	if containsAny(brief, "ziyaret", "goruntule", "visited", "viewed", "browsed") {
