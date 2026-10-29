@@ -87,8 +87,12 @@ appended at the bottom of each section.
 - **Length limits are checked on the worst case after expansion:** each variable
   is replaced by the longest value in the target audience. SMS ≤ 160 characters,
   email subject ≤ 80, email body ≤ 5,000. `first_name` and `city` are `NOT NULL`,
-  so there is no fallback text. A variable whose maximum was not measured counts
-  as 40 characters, so a missing measurement can only make validation stricter.
+  so there is no fallback text. A variable whose maximum was not measured (or is
+  0, e.g. an empty audience) counts as 40 characters, so a missing measurement
+  can only make validation stricter. A variable never counts as shorter than its
+  placeholder (`{{first_name}}` is 14 characters): the database `CHECK` limits the
+  stored raw template, so with short names the expanded message could fit while
+  the insert fails. Email subjects reject both `\r` and `\n`.
 - **Variables are canonicalized, stray braces are rejected.** `{{ first_name }}`
   is rewritten to `{{first_name}}`; `{first_name}`, unbalanced or stray braces and
   unknown names like `{{.Phone}}` are errors. Braces outside a variable would

@@ -103,7 +103,7 @@ func Validate(c *Content, channels []string, lens MaxLengths) error {
 		v.add(ChannelEmail, "is not a channel of this campaign, remove it")
 	case c.Email != nil:
 		c.Email.Subject = v.text("email.subject", c.Email.Subject, MaxSubjectLength)
-		if strings.Contains(c.Email.Subject, "\n") {
+		if strings.ContainsAny(c.Email.Subject, "\r\n") {
 			v.add("email.subject", "must be a single line")
 		}
 		c.Email.Body = v.text("email.body", c.Email.Body, MaxEmailBodyLength)

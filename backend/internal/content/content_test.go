@@ -12,8 +12,8 @@ var (
 	emailOnly = []string{ChannelEmail}
 
 	// testLens is what the seeded İstanbul audience could look like: the
-	// longest first name is a compound one.
-	testLens = MaxLengths{VarFirstName: 12, VarCity: 8}
+	// longest first name is a compound one, longer than its placeholder.
+	testLens = MaxLengths{VarFirstName: 15, VarCity: 8}
 )
 
 const exampleContent = `{
@@ -63,12 +63,13 @@ func TestParseRejects(t *testing.T) {
 		{"empty body", `{"sms": {"body": "   "}}`, smsOnly, "sms.body", "must not be empty"},
 		{"empty subject", `{"email": {"subject": "", "body": "b"}}`, emailOnly, "email.subject", "must not be empty"},
 		{"multi-line subject", `{"email": {"subject": "a\nb", "body": "b"}}`, emailOnly, "email.subject", "single line"},
+		{"carriage return in subject", `{"email": {"subject": "a\rb", "body": "b"}}`, emailOnly, "email.subject", "single line"},
 		{"unknown variable", `{"sms": {"body": "Hi {{last_name}}"}}`, smsOnly, "sms.body", `unknown variable "{{last_name}}"`},
 		{"template injection", `{"sms": {"body": "Hi {{.Phone}}"}}`, smsOnly, "sms.body", "unknown variable"},
 		{"single braces", `{"sms": {"body": "Hi {first_name}"}}`, smsOnly, "sms.body", "single braces"},
 		{"unbalanced", `{"sms": {"body": "Hi {{first_name}"}}`, smsOnly, "sms.body", "braces"},
 		{"stray brace", `{"sms": {"body": "Hi } there"}}`, smsOnly, "sms.body", "stray"},
-		{"sms too long", `{"sms": {"body": "` + long + `{{first_name}}"}}`, smsOnly, "sms.body", "162 characters in the worst case, max 160; shorten it by at least 2 ({{first_name}} counted as 12)"},
+		{"sms too long", `{"sms": {"body": "` + long + `{{first_name}}"}}`, smsOnly, "sms.body", "165 characters in the worst case, max 160; shorten it by at least 5 ({{first_name}} counted as 15)"},
 		{"subject too long", `{"email": {"subject": "` + long[:75] + ` {{city}}", "body": "b"}}`, emailOnly, "email.subject", "84 characters"},
 	}
 	for _, tt := range tests {
@@ -108,9 +109,12 @@ func TestWorstCase(t *testing.T) {
 	}{
 		{"Merhaba", testLens, 7},
 		{"Şükran İğdır", testLens, 12}, // characters, not bytes
-		{"{{first_name}}", testLens, 12},
-		{"{{first_name}} {{first_name}}, {{city}}", testLens, 12 + 1 + 12 + 2 + 8},
-		{"{{city}}", MaxLengths{}, UnknownLength}, // unmeasured variables are pessimistic
+		{"{{first_name}}", testLens, 15},
+		{"{{first_name}} {{first_name}}, {{city}}", testLens, 15 + 1 + 15 + 2 + 8},
+		{"{{city}}", MaxLengths{}, UnknownLength},                // unmeasured variables are pessimistic
+		{"{{city}}", MaxLengths{VarCity: 0}, UnknownLength},      // so is a zero (empty audience)
+		{"{{first_name}}", MaxLengths{VarFirstName: 3}, 14},      // never shorter than the placeholder
+		{"{{city}} {{city}}", MaxLengths{VarCity: 4}, 8 + 1 + 8}, // per occurrence
 	}
 	for _, tt := range tests {
 		if got := tt.lens.WorstCase(tt.tmpl); got != tt.want {
@@ -120,7 +124,7 @@ func TestWorstCase(t *testing.T) {
 }
 
 func TestLimitIsInclusive(t *testing.T) {
-	body := strings.Repeat("a", MaxSMSLength-12) + "{{first_name}}"
+	body := strings.Repeat("a", MaxSMSLength-15) + "{{first_name}}"
 	if err := Validate(&Content{SMS: &SMS{Body: body}}, smsOnly, testLens); err != nil {
 		t.Fatalf("exactly 160 characters in the worst case should pass: %v", err)
 	}
@@ -141,10 +145,22 @@ func TestRenderedFitsWorstCase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	vars := map[string]string{VarFirstName: strings.Repeat("Ş", 12), VarCity: strings.Repeat("İ", 8)}
+	vars := map[string]string{VarFirstName: strings.Repeat("Ş", 15), VarCity: strings.Repeat("İ", 8)}
 	for tmpl, limit := range map[string]int{c.SMS.Body: MaxSMSLength, c.Email.Subject: MaxSubjectLength} {
 		if n := len([]rune(Render(tmpl, vars))); n > limit || n != testLens.WorstCase(tmpl) {
 			t.Errorf("rendered %q is %d characters, worst case %d, limit %d", tmpl, n, testLens.WorstCase(tmpl), limit)
 		}
+	}
+}
+
+// The database checks char_length(body) <= 160 on the raw template. With short
+// names the expanded message would fit, but the stored template would not, so
+// validation must reject it rather than let the insert fail.
+func TestRawTemplateMustFitWhenNamesAreShort(t *testing.T) {
+	short := MaxLengths{VarFirstName: 4, VarCity: 5}
+	body := strings.Repeat("a", 150) + "{{first_name}}" // raw 164, expanded 154
+	err := Validate(&Content{SMS: &SMS{Body: body}}, smsOnly, short)
+	if err == nil || !strings.Contains(err.Error(), "164 characters") {
+		t.Fatalf("err = %v, want the 164-character raw template rejected", err)
 	}
 }

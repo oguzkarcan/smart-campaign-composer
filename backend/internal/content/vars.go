@@ -13,7 +13,7 @@ const (
 	VarCity      = "city"
 
 	// UnknownLength is the worst-case length assumed for a variable missing
-	// from MaxLengths. It is deliberately generous so a missing measurement
+	// from MaxLengths or measured as 0. It is deliberately generous so a missing measurement
 	// can only make validation stricter, never looser.
 	UnknownLength = 40
 )
@@ -79,11 +79,16 @@ func allowedList() string {
 // target audience, e.g. {"first_name": 14, "city": 10}.
 type MaxLengths map[string]int
 
+// of returns how many characters a variable counts as. A missing or zero
+// measurement (e.g. an empty audience) counts as UnknownLength. A variable is
+// never counted shorter than its placeholder, so the worst case also covers
+// the raw template, which the database checks as stored.
 func (m MaxLengths) of(name string) int {
-	if n, ok := m[name]; ok {
-		return n
+	n := m[name]
+	if n <= 0 {
+		n = UnknownLength
 	}
-	return UnknownLength
+	return max(n, utf8.RuneCountInString(token(name)))
 }
 
 // WorstCase returns the length of a canonical template, in characters, with
