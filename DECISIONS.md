@@ -85,8 +85,20 @@ appended at the bottom of each section.
 - **Allowed variables:** `{{first_name}}`, `{{city}}`. Unknown variables are a
   validation error (which triggers a repair attempt).
 - **Length limits are checked on the worst case after expansion:** each variable
-  is replaced by the longest value in the target audience (or its fallback text
-  if that is longer). SMS ≤ 160 characters, email subject ≤ 80.
+  is replaced by the longest value in the target audience. SMS ≤ 160 characters,
+  email subject ≤ 80, email body ≤ 5,000. `first_name` and `city` are `NOT NULL`,
+  so there is no fallback text. A variable whose maximum was not measured counts
+  as 40 characters, so a missing measurement can only make validation stricter.
+- **Variables are canonicalized, stray braces are rejected.** `{{ first_name }}`
+  is rewritten to `{{first_name}}`; `{first_name}`, unbalanced or stray braces and
+  unknown names like `{{.Phone}}` are errors. Braces outside a variable would
+  reach recipients verbatim, and a template engine is never used for rendering
+  (plain substitution of the two allowed names), so content cannot run code.
+- **Content JSON is decoded strictly, like the segment rule.** Unknown keys, a
+  subject on SMS, a missing campaign channel or an extra one are all errors, and
+  every problem is reported with a path (`sms.body`) and, for length errors, how
+  many characters to cut and how each variable was counted, so one repair round
+  has what it needs.
 - **160 is enforced literally as characters.** Note: Turkish letters (ş, ğ, ı)
   force UCS-2 encoding, where a single real SMS segment is only 70 characters.
   We follow the case's 160-character rule and document this as a known gap.

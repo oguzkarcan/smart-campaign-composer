@@ -79,6 +79,7 @@ backend/
     httpapi/       HTTP routes
     seed/          deterministic fake users and events
     segment/       audience rule DSL: validator, SQL compiler, consent
+    content/       message content: validation, worst-case length, rendering
     mockprovider/  fake SMS/email provider
   migrations/      SQL schema (golang-migrate)
 frontend/          Vue 3 app (placeholder for now)
@@ -94,9 +95,11 @@ Done:
 - Mock provider with rate limiting, failure injection and idempotency.
 - API `/health` with a database check.
 - Segment DSL with strict validation, SQL compiler and consent enforcement.
+- Content validation: channel limits on the worst case after variable
+  expansion, allowed variables only, rendering.
 
 Not done yet:
 - LLM layer (Claude and mock clients, validation and repair).
-- Content generation with streaming, limits and personalization.
+- Content generation with streaming.
 - Approval flow, worker sending, retries, `/metrics`.
 - Vue frontend and live dashboard.

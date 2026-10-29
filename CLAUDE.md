@@ -47,3 +47,69 @@ sends them through a queue to a mock provider, and shows delivery status live.
 - All code, comments, commit messages and docs are written in English.
 - Unfinished scope goes in the README. Session exports go in `ai-sessions/`
   (scrub API keys and personal data first).
+## Step-by-step plan (Day 2–5)
+Progress is tracked here: tick a step (`[x]`) in the same commit that finishes it.
+Each step ends with `make test` → commit → push. The next unticked step is the
+one to work on after a `/clear`.
+
+Day 1 (done): repo skeleton, compose, schema, seed, mock provider, `/health`,
+segment DSL + validator + SQL compiler + consent.
+
+### Day 2 – LLM layer
+- [x] 1. `internal/content`: strict JSON parse of `{"sms": {"body"}, "email":
+  {"subject", "body"}}` for the campaign's channels only; variable parsing
+  (`{{first_name}}`, `{{city}}`, spacing canonicalized, unknown/malformed
+  rejected); worst-case length after expansion from per-variable max lengths;
+  path-based problems (all at once, repair-friendly); `Render` for the worker.
+- [ ] 2. `internal/llm`: `Client` interface (segment + streaming content), versioned
+  prompts (DSL schema, catalog values, limits), deterministic mock client,
+  generic generate → validate → repair loop (max 2 repairs) that records every
+  attempt via a recorder (→ `llm_generations`). Tests: success, repair success,
+  failure after 2 repairs, every attempt recorded.
+- [ ] 3. `internal/llm` Claude client: Messages API over net/http, tool use / JSON
+  output for the segment, streaming (SSE from Anthropic) for content, usage and
+  latency captured. Tests with `httptest` (no real key).
+- [ ] 4. `internal/campaign` + store: create campaign from brief → segment →
+  audience count (`audience_ready`); per-variable max lengths over the consented
+  audience; content generation → `campaign_contents` (`content_ready`);
+  marketer edit re-validated (`human_edited`, `version`++); `llm_generations` writes.
+- [ ] 5. `httpapi` routes: `POST /campaigns`, `GET /campaigns/{id}`,
+  `POST /campaigns/{id}/content` (SSE stream of tokens, then validated result or
+  error), `PUT /campaigns/{id}/content/{channel}`; wire `LLM_MODE` in config/api.
+  Handler tests with the mock LLM. Update README/DECISIONS.
+
+### Day 3 – Delivery pipeline
+- [ ] 1. Approval: `POST /campaigns/{id}/approve` re-validates content, locks it,
+  enqueues messages with `INSERT … SELECT` (rule AND consent AND channel in
+  campaign channels) `ON CONFLICT DO NOTHING`; status `approved`→`sending`.
+- [ ] 2. `internal/delivery` provider client: render at send time, `messages.id`
+  as idempotency key, classify responses (ok / retryable 5xx+timeout / 429 with
+  Retry-After / permanent 4xx).
+- [ ] 3. Worker: claim with `FOR UPDATE SKIP LOCKED` + 30 s lease, per-channel
+  token bucket 100/s, record `message_attempts`, backoff with jitter (1 s base,
+  60 s cap, max 5 attempts), lease recovery loop, campaign `completed` detection,
+  graceful shutdown.
+- [ ] 4. `/metrics` (Prometheus text: messages by status/channel, provider
+  attempts by outcome, LLM generations) and campaign status endpoint +
+  `GET /campaigns/{id}/events` SSE for the live dashboard; `GET /campaigns` list.
+- [ ] 5. Tests: retry/backoff math, 429 Retry-After, permanent errors, idempotent
+  enqueue, rate limiter; integration test end to end against the mock provider
+  (duplicate-delivery counter stays 0). Update README/DECISIONS.
+
+### Day 4 – Vue frontend
+- [ ] 1. Scaffold Vite + Vue 3 + TS + Tailwind, Dockerfile, compose service on
+  :3000, typed API client, dev proxy to the API.
+- [ ] 2. Brief form → segment rule (readable) + audience counts per channel.
+- [ ] 3. Content view: streamed generation over SSE, edit with inline
+  validation (worst-case length counters), approve.
+- [ ] 4. Live dashboard over SSE: per-channel status counts, progress, failures;
+  campaign list.
+- [ ] 5. Loading, error and empty states; polish.
+
+### Day 5 – Hardening and delivery
+- [ ] 1. Fill test gaps for the critical behaviours (DSL injection-like input,
+  consent, limits, idempotency, retries, rate limiter); `make test` green.
+- [ ] 2. README (setup, architecture, API, unfinished scope) and DECISIONS final pass.
+- [ ] 3. Fresh-clone `docker compose up` check, demo run with mock and Claude.
+- [ ] 4. Session exports into `ai-sessions/` (scrub keys and personal data).
+- [ ] 5. Optional if time: GitHub Actions CI running `make test`.
