@@ -130,3 +130,19 @@ func TestRecipientsSQLEnforcesConsentOutsideTheRule(t *testing.T) {
 		t.Fatal("unknown channel must be rejected")
 	}
 }
+
+func TestReachableWhere(t *testing.T) {
+	r := mustParse(t, `{"match":"any","conditions":[{"field":"city","op":"eq","value":"Ankara"}]}`)
+	got, args, err := ReachableWhere(r, []string{ChannelSMS, ChannelEmail}, compileNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "((u.city = $1)) AND (u.sms_opt_in OR u.email_opt_in)"; got != want || len(args) != 1 {
+		t.Fatalf("where = %s (%d args), want %s", got, len(args), want)
+	}
+	for _, channels := range [][]string{nil, {"push"}} {
+		if _, _, err := ReachableWhere(r, channels, compileNow); err == nil {
+			t.Fatalf("channels %v must be rejected", channels)
+		}
+	}
+}

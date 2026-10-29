@@ -49,6 +49,28 @@ func RecipientsSQL(r Rule, channel string, now time.Time) (string, []any, error)
 	return "SELECT u.id FROM users u WHERE (" + where + ") AND " + consent + " ORDER BY u.id", args, nil
 }
 
+// ReachableWhere matches users the rule selects who consented to at least one
+// of channels, as a boolean expression over users aliased as "u". It is used
+// to measure the audience a campaign can actually reach.
+func ReachableWhere(r Rule, channels []string, now time.Time) (string, []any, error) {
+	if len(channels) == 0 {
+		return "", nil, fmt.Errorf("no channels")
+	}
+	consent := make([]string, len(channels))
+	for i, ch := range channels {
+		col, ok := consentColumns[ch]
+		if !ok {
+			return "", nil, fmt.Errorf("unknown channel %q", ch)
+		}
+		consent[i] = col
+	}
+	where, args, err := Where(r, now)
+	if err != nil {
+		return "", nil, err
+	}
+	return "(" + where + ") AND (" + strings.Join(consent, " OR ") + ")", args, nil
+}
+
 type builder struct {
 	sb   strings.Builder
 	args []any

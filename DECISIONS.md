@@ -167,6 +167,39 @@ appended at the bottom of each section.
   force UCS-2 encoding, where a single real SMS segment is only 70 characters.
   We follow the case's 160-character rule and document this as a known gap.
 
+## Campaign flow
+
+- **Statuses:** `draft` → `audience_ready` (segment generated and counted) →
+  `content_ready` → `approved` → `sending` → `completed`/`failed`. A failed
+  generation keeps the status and stores `last_error`, so the marketer can retry;
+  a later success clears it.
+- **Channels are chosen by the marketer, never by the LLM,** and are validated
+  and stored in a canonical order when the campaign is created.
+- **A new segment discards the content.** Content is written and length-checked
+  for a specific audience; after the audience changes it must be regenerated.
+- **Content needs a reachable audience.** If nobody who matches consented to the
+  campaign's channels, content generation is refused with an explanation
+  instead of writing messages nobody will receive.
+- **Variable lengths are measured on the reachable audience:** users the rule
+  matches who consented to at least one campaign channel. Measuring over both
+  channels at once is slightly conservative for a single channel, and keeps one
+  set of numbers per campaign. Edits are re-measured against the audience as it
+  is at edit time; approval will measure again.
+- **Audience counts are a snapshot** (`audience_count`, `audience_sms`,
+  `audience_email`) taken when the segment is generated. Event windows are
+  relative to now, so the real recipient list is computed again at approval.
+- **Edits replace one channel at a time** and are validated together with the
+  other channels' current content, through the same validator as generated
+  content. A marketer edit sets `human_edited` and bumps `version`; regenerating
+  resets `human_edited`.
+- **Approval always wins a race.** Every pre-approval write is guarded in SQL
+  (`WHERE status IN (...)`, or a row lock for edits), so a generation or edit
+  that finishes after approval changes nothing and returns a conflict. The
+  service checks status first only to give a clear message.
+- **The service depends on a small `Store` interface.** Flow rules are
+  unit-tested with an in-memory store (`make test`, no database); the Postgres
+  store is covered by integration tests against the seeded database.
+
 ## Delivery
 
 - **One worker process** with goroutines. This makes an in-process token bucket

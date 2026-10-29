@@ -81,6 +81,7 @@ backend/
     segment/       audience rule DSL: validator, SQL compiler, consent
     content/       message content: validation, worst-case length, rendering
     llm/           LLM interface, prompts, repair loop, Claude and mock clients
+    campaign/      campaign flow: brief → segment → content → edits, Postgres store
     mockprovider/  fake SMS/email provider
   migrations/      SQL schema (golang-migrate)
 frontend/          Vue 3 app (placeholder for now)
@@ -101,8 +102,11 @@ Done:
 - LLM layer: versioned prompts, validate-and-repair loop (max 2 repairs) that
   records every attempt, streaming Claude client (official Go SDK) and a
   deterministic mock LLM.
+- Campaign flow service: segment generation and audience counts, content
+  generation measured on the reachable audience, re-validated marketer edits,
+  every LLM attempt stored in `llm_generations`.
 
 Not done yet:
-- Content generation with streaming.
+- HTTP endpoints for the campaign flow, with SSE content streaming.
 - Approval flow, worker sending, retries, `/metrics`.
 - Vue frontend and live dashboard.

@@ -69,7 +69,7 @@ segment DSL + validator + SQL compiler + consent.
 - [x] 3. `internal/llm` Claude client: official Go SDK (`anthropic-sdk-go`),
   streaming for all calls, refusal fallback, usage and latency captured. Tests
   with `httptest` (no real key).
-- [ ] 4. `internal/campaign` + store: create campaign from brief → segment →
+- [x] 4. `internal/campaign` + store: create campaign from brief → segment →
   audience count (`audience_ready`); per-variable max lengths over the consented
   audience; content generation → `campaign_contents` (`content_ready`);
   marketer edit re-validated (`human_edited`, `version`++); `llm_generations` writes.
