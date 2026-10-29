@@ -65,6 +65,9 @@ func TestParseRejects(t *testing.T) {
 	}{
 		{"not JSON", `SELECT * FROM users`, "", "invalid JSON"},
 		{"trailing data", `{"match":"all","conditions":[]} {}`, "", "unexpected data"},
+		{"trailing brace", `{"match":"all","conditions":[]}}`, "", "unexpected data"},
+		{"trailing bracket", `{"match":"all","conditions":[]}]`, "", "unexpected data"},
+		{"trailing text", `{"match":"all","conditions":[]} done`, "", "unexpected data"},
 		{"unknown top-level key", `{"match":"all","conditions":[],"sql":"DROP TABLE users"}`, "", "unknown field"},
 		{"unknown condition key", `{"match":"all","conditions":[{"field":"city","op":"eq","value":"Ankara","raw":"1=1"}]}`, "", "unknown field"},
 		{"bad match", `{"match":"some","conditions":[]}`, "match", "must be"},

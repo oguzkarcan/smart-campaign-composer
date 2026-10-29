@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"slices"
 	"sort"
 	"strings"
@@ -41,7 +42,10 @@ func Parse(data []byte, cat Catalog) (Rule, error) {
 	if err := dec.Decode(&r); err != nil {
 		return Rule{}, ValidationError{{Message: "invalid JSON: " + err.Error()}}
 	}
-	if dec.More() {
+	// Decoding a second value must hit EOF. dec.More() is not enough: it
+	// reports false for a stray "}" or "]", which ExtractJSON keeps when the
+	// model's answer ends with one.
+	if err := dec.Decode(&json.RawMessage{}); err != io.EOF {
 		return Rule{}, ValidationError{{Message: "invalid JSON: unexpected data after the rule"}}
 	}
 	return r, Validate(&r, cat)

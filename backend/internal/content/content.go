@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 	"unicode/utf8"
 )
@@ -79,7 +80,10 @@ func Parse(data []byte, channels []string, lens MaxLengths) (Content, error) {
 	if err := dec.Decode(&c); err != nil {
 		return Content{}, ValidationError{{Message: "invalid JSON: " + err.Error()}}
 	}
-	if dec.More() {
+	// Decoding a second value must hit EOF. dec.More() is not enough: it
+	// reports false for a stray "}" or "]", which ExtractJSON keeps when the
+	// model's answer ends with one.
+	if err := dec.Decode(&json.RawMessage{}); err != io.EOF {
 		return Content{}, ValidationError{{Message: "invalid JSON: unexpected data after the content"}}
 	}
 	return c, Validate(&c, channels, lens)

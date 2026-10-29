@@ -182,3 +182,15 @@ func TestExtractJSON(t *testing.T) {
 		}
 	}
 }
+
+// ExtractJSON keeps everything up to the last "}", so an answer with a stray
+// closing brace must be caught by the parser and repaired.
+func TestGenerateRepairsTrailingBrace(t *testing.T) {
+	_, err, client, rec := generateRule(t, ScriptedAnswer{Text: validRule + "}"}, ScriptedAnswer{Text: validRule})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.Attempts) != 2 || rec.Attempts[0].Valid || !strings.Contains(client.Requests[1].Messages[2].Content, "unexpected data") {
+		t.Fatalf("attempts = %+v", rec.Attempts)
+	}
+}

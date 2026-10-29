@@ -55,6 +55,9 @@ func TestParseRejects(t *testing.T) {
 	}{
 		{"not JSON", `sms: hi`, smsOnly, "", "invalid JSON"},
 		{"trailing data", `{"sms": {"body": "hi"}} {}`, smsOnly, "", "unexpected data"},
+		{"trailing brace", `{"sms": {"body": "hi"}}}`, smsOnly, "", "unexpected data"},
+		{"trailing bracket", `{"sms": {"body": "hi"}}]`, smsOnly, "", "unexpected data"},
+		{"trailing text", `{"sms": {"body": "hi"}} ok`, smsOnly, "", "unexpected data"},
 		{"unknown key", `{"sms": {"body": "hi", "sql": "DROP TABLE users"}}`, smsOnly, "", "unknown field"},
 		{"unknown channel key", `{"sms": {"body": "hi"}, "push": {"body": "hi"}}`, smsOnly, "", "unknown field"},
 		{"sms subject", `{"sms": {"body": "hi", "subject": "x"}}`, smsOnly, "", "unknown field"},
