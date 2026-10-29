@@ -1,6 +1,8 @@
 # One-command setup: docker compose up
 # Works without a .env file; values below fall back to mock-mode defaults.
 
+name: scc
+
 x-backend: &backend
   build: ./backend
   image: scc-backend

@@ -31,6 +31,7 @@ To use Claude, set `LLM_MODE=claude` and `ANTHROPIC_API_KEY` in `.env`.
 
 ```sh
 make test    # backend tests (mock LLM, no API key, no running stack needed)
+make test-integration  # also runs DB tests against the seeded compose Postgres
 make vet     # go vet
 make fmt     # go fmt
 make up      # docker compose up --build
@@ -77,6 +78,7 @@ backend/
     store/         Postgres connection
     httpapi/       HTTP routes
     seed/          deterministic fake users and events
+    segment/       audience rule DSL: validator, SQL compiler, consent
     mockprovider/  fake SMS/email provider
   migrations/      SQL schema (golang-migrate)
 frontend/          Vue 3 app (placeholder for now)
@@ -91,9 +93,9 @@ Done:
 - Deterministic seed: 5,000 users, consent mix, 90 days of events.
 - Mock provider with rate limiting, failure injection and idempotency.
 - API `/health` with a database check.
+- Segment DSL with strict validation, SQL compiler and consent enforcement.
 
 Not done yet:
-- Segment DSL, validator and SQL compiler.
 - LLM layer (Claude and mock clients, validation and repair).
 - Content generation with streaming, limits and personalization.
 - Approval flow, worker sending, retries, `/metrics`.

@@ -37,6 +37,38 @@ appended at the bottom of each section.
   replaces the streamed preview with the validated result. Simpler than parsing
   partial JSON in the browser.
 
+## Segment DSL
+
+- **Small, explicit grammar.** A rule is an `all`/`any` group of conditions;
+  each condition is a field comparison (`city`, `language` with `eq`, `neq`,
+  `in`, `not_in`), an event condition (`page_view`, `cart_add`, `purchase` with
+  `within_days`, `exists`, optional `min_count`) or a nested group. Limits: depth
+  3, 20 conditions, 50 values, 365 days. A small grammar is easier for Claude to
+  get right and easier to validate completely.
+- **Strict decoding.** Unknown keys anywhere are rejected (an extra `"sql"` key
+  is an error, not ignored), as is trailing data, mixing condition kinds, or
+  keys that don't belong to the condition's kind.
+- **Values are checked against the database.** The validator loads the cities
+  and languages that actually exist. Spelling is canonicalized ignoring case and
+  Turkish diacritics (`Istanbul`, `ISTANBUL` → `İstanbul`); an unknown value is
+  an error listing the allowed values, which gives the repair prompt something
+  concrete to fix. A brief for a city with no users fails clearly instead of
+  silently matching nobody.
+- **All problems are reported at once, with paths** like
+  `conditions[1].within_days`, so one repair round can fix everything.
+- **Defense in depth in the compiler.** It does not trust validation: column
+  names come only from a whitelist map, unknown names are an error, and every
+  value (including the `within_days` cutoff time) is a positional argument.
+- **Time is a parameter, not `now()`.** The cutoff is computed in Go from a
+  passed-in time, so compiled SQL is deterministic in tests.
+- **Consent is outside the rule.** Recipient queries are
+  `WHERE (<rule>) AND <consent column>`, so an `any` (OR) rule cannot bypass
+  consent. The consent column comes from a channel → column map.
+- **Integration tests compare against hand-written SQL.** `make
+  test-integration` runs compiled rules on the seeded database and checks the
+  counts against an independent reference query. `make test` stays free of
+  external dependencies.
+
 ## Audience and consent
 
 - **Campaigns have a `channels` field** (sms, email, or both).
