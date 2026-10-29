@@ -61,7 +61,7 @@ segment DSL + validator + SQL compiler + consent.
   (`{{first_name}}`, `{{city}}`, spacing canonicalized, unknown/malformed
   rejected); worst-case length after expansion from per-variable max lengths;
   path-based problems (all at once, repair-friendly); `Render` for the worker.
-- [ ] 2. `internal/llm`: `Client` interface (segment + streaming content), versioned
+- [x] 2. `internal/llm`: `Client` interface (segment + streaming content), versioned
   prompts (DSL schema, catalog values, limits), deterministic mock client,
   generic generate → validate → repair loop (max 2 repairs) that records every
   attempt via a recorder (→ `llm_generations`). Tests: success, repair success,

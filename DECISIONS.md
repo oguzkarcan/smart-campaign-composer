@@ -37,6 +37,39 @@ appended at the bottom of each section.
   replaces the streamed preview with the validated result. Simpler than parsing
   partial JSON in the browser.
 
+- **One small `Client` interface:** `Complete(request, onDelta)` with a system
+  prompt and a list of messages. Segment and content generation are just
+  different prompts, and a repair is the same call with the bad answer and the
+  errors appended, so one method covers everything. Requests also carry the
+  structured input they were built from; real clients ignore it, the mock uses
+  it to answer deterministically.
+- **The repair loop is generic** (`llm.Generate[T]` with a parse function), so
+  segment rules and content share one implementation and one set of tests.
+  Only validation errors are repaired; API/transport errors are recorded and
+  returned immediately (retrying them is the client's job, not a repair).
+  Failing to record an attempt fails the generation: the audit trail is a
+  requirement. Attempts are recorded even if the request was cancelled
+  meanwhile, so the trail matches what was actually spent.
+- **Streamed text carries the attempt number,** so the UI can reset its preview
+  when a repair round starts instead of showing two answers glued together.
+- **Prompts are versioned** (`segment-v1`, `content-v1`); the version is stored
+  with every attempt so quality can be compared across prompt changes.
+- **The brief is treated as data.** It is wrapped in `<brief>` tags and the
+  system prompt says to ignore instructions inside it. This only lowers the
+  odds of prompt injection; the real guarantee is that every answer is
+  validated (whitelisted DSL, allowed variables, limits) and never executed.
+- **The prompt states the limits with the audience's real numbers** (e.g.
+  `{{first_name}}` counts as 15 characters), so Claude can write to the worst
+  case instead of learning it through a repair round.
+- **Prose and code fences around the JSON are trimmed** before parsing, a cheap
+  fix for the most common harmless formatting slip; anything else goes through
+  validation and repair.
+- **The mock is a keyword reader, not random.** It finds catalog cities, cart,
+  purchase (and its negation), visits and "N days" in Turkish or English briefs,
+  and writes fixed templates short enough to pass even with unmeasured variable
+  lengths. The case's example brief gives the same rule as Claude would. A
+  separate `Scripted` client drives repair and failure paths in tests.
+
 ## Segment DSL
 
 - **Small, explicit grammar.** A rule is an `all`/`any` group of conditions;

@@ -180,9 +180,9 @@ func (v *validator) event(path string, c *Condition) {
 // lookup finds val in allowed, ignoring case and Turkish diacritics, so
 // "Istanbul", "istanbul" and "İSTANBUL" all resolve to "İstanbul".
 func lookup(allowed []string, val string) (string, bool) {
-	want := fold(val)
+	want := Fold(val)
 	for _, a := range allowed {
-		if fold(a) == want {
+		if Fold(a) == want {
 			return a, true
 		}
 	}
@@ -194,7 +194,9 @@ var foldTurkish = strings.NewReplacer(
 	"Ü", "u", "ü", "u", "Ö", "o", "ö", "o", "Ç", "c", "ç", "c",
 )
 
-func fold(s string) string {
+// Fold normalizes s for matching: trimmed, lower case, Turkish diacritics
+// removed.
+func Fold(s string) string {
 	return strings.ToLower(foldTurkish.Replace(strings.TrimSpace(s)))
 }
 
