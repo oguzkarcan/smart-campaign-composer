@@ -74,6 +74,29 @@ appended at the bottom of each section.
   brief: no discount is mentioned unless the brief has one. The case's example brief gives the same rule as Claude would. A
   separate `Scripted` client drives repair and failure paths in tests.
 
+- **Official Anthropic Go SDK** for the Claude client, not hand-written HTTP:
+  typed requests and stream events, and its built-in retries (429, 529
+  overload, 5xx, connection errors, with backoff honouring `retry-after`).
+  API-level retries therefore live in the client, separate from repair rounds.
+- **Always streaming.** Segment and content calls both stream: text deltas go
+  to the UI, and the accumulated message gives usage and the stop reason.
+- **Adaptive thinking at `low` effort, no sampling parameters.** These are
+  short structured tasks; Sonnet 5.5 cannot disable thinking, and low effort
+  keeps latency and cost down. Raising it is a one-line change if quality needs it.
+- **Refusals:** server-side refusal fallback (`fallbacks: "default"`, beta
+  `server-side-fallback-2026-07-01`) re-serves a declined request on a fallback
+  model in the same call, and the model that actually answered is stored with
+  the attempt. A refusal that still comes back is a clear error, not a repair.
+- **A `max_tokens` cut-off is an error, not a repair:** the truncated answer is
+  stored, but asking again with the same limit would most likely be cut off again.
+- **JSON by prompt + our validator, not API structured outputs.** The real
+  rules (catalog values, worst-case lengths after expansion) cannot be expressed
+  in a JSON schema, so our validator is the source of truth either way.
+  Structured outputs could remove pure syntax repairs; noted as a possible
+  improvement.
+- **No prompt caching yet:** the system prompts are below the minimum
+  cacheable size, so a cache breakpoint would do nothing.
+
 ## Segment DSL
 
 - **Small, explicit grammar.** A rule is an `all`/`any` group of conditions;

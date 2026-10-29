@@ -48,7 +48,10 @@ type Request struct {
 }
 
 type Response struct {
-	Text         string
+	Text string
+	// Model is the model that answered, if the client knows it; it can
+	// differ from Client.Model() when a fallback model served the request.
+	Model        string
 	InputTokens  int
 	OutputTokens int
 }
@@ -131,6 +134,9 @@ func Generate[T any](ctx context.Context, c Client, rec Recorder, req Request,
 			InputTokens:   resp.InputTokens,
 			OutputTokens:  resp.OutputTokens,
 			Latency:       time.Since(start),
+		}
+		if resp.Model != "" {
+			a.Model = resp.Model
 		}
 
 		if err != nil {

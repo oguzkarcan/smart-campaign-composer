@@ -66,9 +66,9 @@ segment DSL + validator + SQL compiler + consent.
   generic generate → validate → repair loop (max 2 repairs) that records every
   attempt via a recorder (→ `llm_generations`). Tests: success, repair success,
   failure after 2 repairs, every attempt recorded.
-- [ ] 3. `internal/llm` Claude client: Messages API over net/http, tool use / JSON
-  output for the segment, streaming (SSE from Anthropic) for content, usage and
-  latency captured. Tests with `httptest` (no real key).
+- [x] 3. `internal/llm` Claude client: official Go SDK (`anthropic-sdk-go`),
+  streaming for all calls, refusal fallback, usage and latency captured. Tests
+  with `httptest` (no real key).
 - [ ] 4. `internal/campaign` + store: create campaign from brief → segment →
   audience count (`audience_ready`); per-variable max lengths over the consented
   audience; content generation → `campaign_contents` (`content_ready`);
