@@ -9,12 +9,15 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/oguzkarcan/smart-campaign-composer/backend/internal/content"
 	"github.com/oguzkarcan/smart-campaign-composer/backend/internal/llm"
 )
+
+const exampleBrief = "Son 30 günde sepete ürün ekleyip satın almayan İstanbul'daki kullanıcılara %30 indirim hatırlatması gönder"
 
 // These tests run the campaign flow with the mock LLM against the seeded
 // database (make test-integration). Created campaigns are deleted afterwards.
@@ -131,7 +134,7 @@ func TestIntegrationMaxLengths(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	lens, err := store.MaxLengths(ctx, *c.Rule, c.Channels, svc.now())
+	lens, err := store.MaxLengths(ctx, *c.Rule, c.Channels, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}

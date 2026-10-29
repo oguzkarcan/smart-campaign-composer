@@ -200,6 +200,35 @@ appended at the bottom of each section.
   unit-tested with an in-memory store (`make test`, no database); the Postgres
   store is covered by integration tests against the seeded database.
 
+## HTTP API
+
+- **Creating a campaign also generates its segment,** in one request: the
+  marketer always wants the audience next, and a segment call is short. If the
+  model fails, the campaign is still created (`201`, status `draft`,
+  `last_error`), so nothing typed is lost and `POST /campaigns/{id}/segment`
+  retries.
+- **Content generation is a POST that streams SSE.** It changes state, so it is
+  not a GET (`EventSource` only does GET; the frontend reads the stream with
+  `fetch`). The stream starts with the first token: until then the handler can
+  still answer `404`/`409` as plain JSON, so the client checks the status first
+  and treats `200` as a stream. Errors after that arrive as an `error` event
+  carrying the status it would have had. If the client disconnects, the request
+  context cancels the model call; the attempt is still recorded.
+- **Errors are mapped once** (`errorBody`): not found 404, bad input 400,
+  wrong status 409, invalid content or model output 422 (with `problems`),
+  model unreachable 502. Unexpected errors are logged and returned as a generic
+  500 without internal details. LLM failures have their own type
+  (`llm.CallError`) so they are not mistaken for database errors.
+- **Request bodies are decoded strictly** (unknown fields → 400, 64 KB max), so
+  a client cannot send a `segment_rule` or `human_edited` flag and have it
+  silently ignored. The segment rule never comes from the client.
+- **The campaign exposes the numbers its content is validated with**
+  (`variable_lengths`, `limits`), measured at read time like an edit is, so the
+  UI's live counter and the server cannot disagree. The UI does not need to know
+  the placeholder minimum or the unknown-length fallback.
+- **The mock LLM streams with a 40 ms pause per chunk** in the running app, so
+  streaming is visible in a demo; tests use no delay.
+
 ## Delivery
 
 - **One worker process** with goroutines. This makes an in-process token bucket

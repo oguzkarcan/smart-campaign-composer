@@ -53,6 +53,15 @@ type Campaign struct {
 	ApprovedAt *time.Time        `json:"approved_at,omitempty"`
 	CreatedAt  time.Time         `json:"created_at"`
 	UpdatedAt  time.Time         `json:"updated_at"`
+
+	// VariableLengths is how many characters each personalization variable
+	// counts as in the worst-case length check, measured on the reachable
+	// audience now; Limits are the maximum worst-case lengths by path
+	// ("sms.body"). A UI computes the same worst case the server validates:
+	// template length with each variable replaced by its counted length.
+	// VariableLengths is set once the campaign has a segment.
+	VariableLengths map[string]int `json:"variable_lengths,omitempty"`
+	Limits          map[string]int `json:"limits"`
 }
 
 // Content is the current message for one channel.
@@ -147,11 +156,29 @@ func (s *Service) Create(ctx context.Context, brief string, channels []string) (
 	if len(canonical) == 0 {
 		return Campaign{}, fmt.Errorf("%w: choose at least one channel (sms, email)", ErrInvalid)
 	}
-	return s.store.Create(ctx, brief, canonical)
+	c, err := s.store.Create(ctx, brief, canonical)
+	if err != nil {
+		return Campaign{}, err
+	}
+	return s.Get(ctx, c.ID)
 }
 
+// Get returns a campaign with the variable lengths its content is validated
+// against, measured at the same moment as an edit would be.
 func (s *Service) Get(ctx context.Context, id int64) (Campaign, error) {
-	return s.store.Get(ctx, id)
+	c, err := s.store.Get(ctx, id)
+	if err != nil {
+		return Campaign{}, err
+	}
+	c.Limits = content.Limits
+	if c.Rule != nil {
+		lens, err := s.store.MaxLengths(ctx, *c.Rule, c.Channels, s.now())
+		if err != nil {
+			return Campaign{}, err
+		}
+		c.VariableLengths = lens.Counted()
+	}
+	return c, nil
 }
 
 // GenerateSegment asks the LLM for the audience rule and counts it. A new
@@ -184,7 +211,7 @@ func (s *Service) GenerateSegment(ctx context.Context, id int64) (Campaign, erro
 	if err := s.store.SaveSegment(ctx, id, rule, audience); err != nil {
 		return Campaign{}, err
 	}
-	return s.store.Get(ctx, id)
+	return s.Get(ctx, id)
 }
 
 // GenerateContent asks the LLM for the messages of every campaign channel.
@@ -217,7 +244,7 @@ func (s *Service) GenerateContent(ctx context.Context, id int64, onDelta func(at
 	if err := s.store.SaveContent(ctx, id, result); err != nil {
 		return Campaign{}, err
 	}
-	return s.store.Get(ctx, id)
+	return s.Get(ctx, id)
 }
 
 // Edit is the marketer's change to one channel's message.
@@ -262,7 +289,7 @@ func (s *Service) EditContent(ctx context.Context, id int64, channel string, e E
 	if err := s.store.EditContent(ctx, id, edited, channel); err != nil {
 		return Campaign{}, err
 	}
-	return s.store.Get(ctx, id)
+	return s.Get(ctx, id)
 }
 
 // fail records a generation error on the campaign for the UI and returns it.

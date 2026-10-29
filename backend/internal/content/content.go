@@ -22,6 +22,14 @@ const (
 	MaxEmailBodyLength = 5000
 )
 
+// Limits are the maximum worst-case lengths, keyed by the same paths that
+// validation problems use.
+var Limits = map[string]int{
+	"sms.body":      MaxSMSLength,
+	"email.subject": MaxSubjectLength,
+	"email.body":    MaxEmailBodyLength,
+}
+
 // Content holds one message per channel. Only the campaign's channels may be
 // set; the others must be nil.
 type Content struct {

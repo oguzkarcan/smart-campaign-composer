@@ -1,0 +1,171 @@
+// Package campaigntest provides an in-memory campaign store for tests.
+package campaigntest
+
+import (
+	"context"
+	"fmt"
+	"slices"
+	"sync"
+	"time"
+
+	"github.com/oguzkarcan/smart-campaign-composer/backend/internal/campaign"
+	"github.com/oguzkarcan/smart-campaign-composer/backend/internal/content"
+	"github.com/oguzkarcan/smart-campaign-composer/backend/internal/llm"
+	"github.com/oguzkarcan/smart-campaign-composer/backend/internal/segment"
+)
+
+// MemStore is an in-memory campaign.Store with fixed audience numbers, for
+// tests that do not need Postgres. It applies the same status guards as
+// campaign.PGStore.
+type MemStore struct {
+	mu        sync.Mutex
+	campaigns map[int64]*campaign.Campaign
+	nextID    int64
+	Audience  segment.Audience
+	Lens      content.MaxLengths
+	attempts  map[int64]*llm.MemoryRecorder
+}
+
+func NewMemStore() *MemStore {
+	return &MemStore{
+		campaigns: map[int64]*campaign.Campaign{},
+		Audience:  segment.Audience{Matched: 230, SMS: 120, Email: 160},
+		Lens:      content.MaxLengths{content.VarFirstName: 13, content.VarCity: 10},
+		attempts:  map[int64]*llm.MemoryRecorder{},
+	}
+}
+
+// Catalog is the city and language catalog MemStore serves.
+var Catalog = segment.Catalog{"city": {"Ankara", "İstanbul", "İzmir"}, "language": {"en", "tr"}}
+
+func (s *MemStore) Create(_ context.Context, brief string, channels []string) (campaign.Campaign, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.nextID++
+	c := &campaign.Campaign{ID: s.nextID, Brief: brief, Status: campaign.StatusDraft, Channels: channels, Contents: []campaign.Content{}}
+	s.campaigns[c.ID] = c
+	return *c, nil
+}
+
+func (s *MemStore) Get(_ context.Context, id int64) (campaign.Campaign, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, ok := s.campaigns[id]
+	if !ok {
+		return campaign.Campaign{}, campaign.ErrNotFound
+	}
+	out := *c
+	out.Contents = slices.Clone(c.Contents)
+	return out, nil
+}
+
+func (s *MemStore) guard(id int64, allowed ...string) (*campaign.Campaign, error) {
+	c, ok := s.campaigns[id]
+	if !ok {
+		return nil, campaign.ErrNotFound
+	}
+	if !slices.Contains(allowed, c.Status) {
+		return nil, fmt.Errorf("%w (status %s)", campaign.ErrConflict, c.Status)
+	}
+	return c, nil
+}
+
+func (s *MemStore) SaveSegment(_ context.Context, id int64, r segment.Rule, a segment.Audience) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, err := s.guard(id, campaign.StatusDraft, campaign.StatusAudienceReady, campaign.StatusContentReady)
+	if err != nil {
+		return err
+	}
+	c.Rule, c.Audience, c.Status, c.LastError, c.Contents = &r, &a, campaign.StatusAudienceReady, "", []campaign.Content{}
+	return nil
+}
+
+func (s *MemStore) SaveContent(_ context.Context, id int64, cc content.Content) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, err := s.guard(id, campaign.StatusAudienceReady, campaign.StatusContentReady)
+	if err != nil {
+		return err
+	}
+	version := 1
+	if len(c.Contents) > 0 {
+		version = c.Contents[0].Version + 1
+	}
+	c.Contents = nil
+	if cc.SMS != nil {
+		c.Contents = append(c.Contents, campaign.Content{Channel: "sms", Body: cc.SMS.Body, Version: version})
+	}
+	if cc.Email != nil {
+		c.Contents = append(c.Contents, campaign.Content{Channel: "email", Subject: cc.Email.Subject, Body: cc.Email.Body, Version: version})
+	}
+	c.Status, c.LastError = campaign.StatusContentReady, ""
+	return nil
+}
+
+func (s *MemStore) EditContent(_ context.Context, id int64, cc content.Content, channel string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, err := s.guard(id, campaign.StatusContentReady)
+	if err != nil {
+		return err
+	}
+	for i := range c.Contents {
+		m := &c.Contents[i]
+		if m.Channel != channel {
+			continue
+		}
+		if channel == "sms" {
+			m.Body = cc.SMS.Body
+		} else {
+			m.Subject, m.Body = cc.Email.Subject, cc.Email.Body
+		}
+		m.HumanEdited = true
+		m.Version++
+	}
+	return nil
+}
+
+func (s *MemStore) SetError(_ context.Context, id int64, msg string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.campaigns[id].LastError = msg
+	return nil
+}
+
+func (s *MemStore) Catalog(context.Context) (segment.Catalog, error) { return Catalog, nil }
+
+func (s *MemStore) Count(context.Context, segment.Rule, time.Time) (segment.Audience, error) {
+	return s.Audience, nil
+}
+
+func (s *MemStore) MaxLengths(context.Context, segment.Rule, []string, time.Time) (content.MaxLengths, error) {
+	return s.Lens, nil
+}
+
+func (s *MemStore) Recorder(id int64) llm.Recorder {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.attempts[id] == nil {
+		s.attempts[id] = &llm.MemoryRecorder{}
+	}
+	return s.attempts[id]
+}
+
+// SetStatus forces a campaign's status, e.g. to simulate an approval.
+func (s *MemStore) SetStatus(id int64, status string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.campaigns[id].Status = status
+}
+
+// Attempts returns the LLM attempts recorded for a campaign.
+func (s *MemStore) Attempts(id int64) []llm.Attempt {
+	s.mu.Lock()
+	rec := s.attempts[id]
+	s.mu.Unlock()
+	if rec == nil {
+		return nil
+	}
+	return rec.Attempts
+}

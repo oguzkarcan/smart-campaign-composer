@@ -164,3 +164,13 @@ func TestRawTemplateMustFitWhenNamesAreShort(t *testing.T) {
 		t.Fatalf("err = %v, want the 164-character raw template rejected", err)
 	}
 }
+
+func TestCounted(t *testing.T) {
+	got := MaxLengths{VarFirstName: 15, VarCity: 3}.Counted()
+	if got[VarFirstName] != 15 || got[VarCity] != 8 || len(got) != len(Variables) {
+		t.Fatalf("Counted = %v, want first_name 15 and city 8 (its placeholder)", got)
+	}
+	if got := (MaxLengths{}).Counted(); got[VarCity] != UnknownLength {
+		t.Fatalf("unmeasured Counted = %v", got)
+	}
+}

@@ -73,7 +73,7 @@ segment DSL + validator + SQL compiler + consent.
   audience count (`audience_ready`); per-variable max lengths over the consented
   audience; content generation → `campaign_contents` (`content_ready`);
   marketer edit re-validated (`human_edited`, `version`++); `llm_generations` writes.
-- [ ] 5. `httpapi` routes: `POST /campaigns`, `GET /campaigns/{id}`,
+- [x] 5. `httpapi` routes: `POST /campaigns`, `GET /campaigns/{id}`,
   `POST /campaigns/{id}/content` (SSE stream of tokens, then validated result or
   error), `PUT /campaigns/{id}/content/{channel}`; wire `LLM_MODE` in config/api.
   Handler tests with the mock LLM. Update README/DECISIONS.

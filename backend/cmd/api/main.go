@@ -11,8 +11,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/oguzkarcan/smart-campaign-composer/backend/internal/campaign"
 	"github.com/oguzkarcan/smart-campaign-composer/backend/internal/config"
 	"github.com/oguzkarcan/smart-campaign-composer/backend/internal/httpapi"
+	"github.com/oguzkarcan/smart-campaign-composer/backend/internal/llm"
 	"github.com/oguzkarcan/smart-campaign-composer/backend/internal/store"
 )
 
@@ -40,7 +42,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpapi.New(pool).Handler(),
+		Handler:           httpapi.New(pool, campaign.NewService(campaign.NewPGStore(pool), newLLM(cfg))).Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -51,9 +53,24 @@ func run() error {
 		_ = srv.Shutdown(shutdownCtx)
 	}()
 
-	slog.Info("api listening", "addr", cfg.HTTPAddr, "llm_mode", cfg.LLMMode, "model", cfg.ClaudeModel)
+	model := "mock"
+	if cfg.LLMMode == config.LLMModeClaude {
+		model = cfg.ClaudeModel
+	}
+	slog.Info("api listening", "addr", cfg.HTTPAddr, "llm_mode", cfg.LLMMode, "model", model)
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil
+}
+
+// mockStreamDelay paces the mock's streamed chunks so streaming is visible in
+// a demo (about a second for a full SMS and email).
+const mockStreamDelay = 40 * time.Millisecond
+
+func newLLM(cfg config.Config) llm.Client {
+	if cfg.LLMMode == config.LLMModeClaude {
+		return llm.NewClaude(cfg.AnthropicAPIKey, cfg.ClaudeModel)
+	}
+	return &llm.Mock{Delay: mockStreamDelay}
 }

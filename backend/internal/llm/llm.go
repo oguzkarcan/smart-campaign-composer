@@ -99,6 +99,17 @@ func (e *GenerationError) Error() string {
 
 func (e *GenerationError) Unwrap() error { return e.Err }
 
+// CallError means the model call itself failed (unreachable, API error,
+// refusal, truncation), as opposed to returning invalid output.
+type CallError struct {
+	Kind string
+	Err  error
+}
+
+func (e *CallError) Error() string { return fmt.Sprintf("%s generation failed: %v", e.Kind, e.Err) }
+
+func (e *CallError) Unwrap() error { return e.Err }
+
 // Generate calls the model, parses its answer with parse, and on a validation
 // error asks the model to repair it, at most MaxRepairs times. Every attempt is
 // recorded. onDelta, if not nil, receives streamed text with the attempt
@@ -144,7 +155,7 @@ func Generate[T any](ctx context.Context, c Client, rec Recorder, req Request,
 			if rerr := record(a); rerr != nil {
 				return zero, errors.Join(err, rerr)
 			}
-			return zero, fmt.Errorf("%s generation: %w", req.Kind, err)
+			return zero, &CallError{Kind: req.Kind, Err: err}
 		}
 
 		v, perr := parse([]byte(ExtractJSON(resp.Text)))

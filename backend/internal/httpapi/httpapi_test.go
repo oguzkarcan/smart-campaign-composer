@@ -26,7 +26,7 @@ func TestHealth(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
-			New(fakePinger{tt.pingErr}).Handler().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/health", nil))
+			New(fakePinger{tt.pingErr}, nil).Handler().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/health", nil))
 
 			if w.Code != tt.wantStatus {
 				t.Fatalf("status = %d, want %d", w.Code, tt.wantStatus)

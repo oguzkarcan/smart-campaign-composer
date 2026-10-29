@@ -103,8 +103,9 @@ func TestGenerateTransportErrorIsNotRepaired(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 	var gerr *GenerationError
-	if errors.As(err, &gerr) {
-		t.Fatal("a transport error is not a generation (validation) error")
+	var cerr *CallError
+	if errors.As(err, &gerr) || !errors.As(err, &cerr) || cerr.Kind != KindSegment {
+		t.Fatalf("err = %#v, want a CallError, not a GenerationError", err)
 	}
 	if len(client.Requests) != 1 || len(rec.Attempts) != 1 || rec.Attempts[0].Error != "overloaded" || rec.Attempts[0].Valid {
 		t.Fatalf("calls = %d, attempts = %+v", len(client.Requests), rec.Attempts)

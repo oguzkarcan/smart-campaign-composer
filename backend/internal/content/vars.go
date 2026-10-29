@@ -91,6 +91,16 @@ func (m MaxLengths) of(name string) int {
 	return max(n, utf8.RuneCountInString(token(name)))
 }
 
+// Counted returns how many characters each variable counts as in WorstCase,
+// so a UI can show the same worst-case length the server validates.
+func (m MaxLengths) Counted() map[string]int {
+	out := make(map[string]int, len(Variables))
+	for _, name := range Variables {
+		out[name] = m.of(name)
+	}
+	return out
+}
+
 // WorstCase returns the length of a canonical template, in characters, with
 // every variable replaced by its longest possible value.
 func (m MaxLengths) WorstCase(tmpl string) int {

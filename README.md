@@ -68,6 +68,30 @@ is enforced in the backend; channel length limits are checked on the worst case
 after variable expansion. See [DECISIONS.md](DECISIONS.md) for the reasoning
 behind every major choice.
 
+## API
+
+All bodies are JSON. Errors are `{"error": "...", "problems": [{"path", "message"}]}`;
+`problems` lists validation failures by path (`sms.body`, `conditions[0].field`).
+
+| Method & path                          | What it does |
+| -------------------------------------- | ------------ |
+| `POST /campaigns`                      | `{"brief", "channels": ["sms", "email"]}` → creates the campaign and generates its segment. `201` even if generation fails: the campaign stays `draft` with `last_error`. |
+| `GET /campaigns/{id}`                  | Campaign with segment rule, audience counts, content, `variable_lengths` and `limits`. |
+| `POST /campaigns/{id}/segment`         | Regenerates the segment (discards content). |
+| `POST /campaigns/{id}/content`         | Generates content, streamed as SSE: `delta` `{"attempt", "text"}`, then `done` (campaign) or `error`. A higher `attempt` means a repair round started. Errors before streaming starts are plain JSON. |
+| `PUT /campaigns/{id}/content/{channel}`| `{"subject", "body"}` → marketer edit, validated like generated content (`422` with `problems`). |
+| `GET /health`                          | `200` when the database is reachable, `503` otherwise. |
+
+Status codes: `400` bad input, `404` unknown campaign, `409` not allowed in the
+campaign's status (e.g. after approval), `422` invalid content or model output,
+`502` the LLM could not be reached.
+
+**Live length counter:** `variable_lengths` (e.g. `{"first_name": 14, "city": 8}`)
+is what each variable counts as in the server's worst-case check, measured on
+the campaign's reachable audience. A template's worst-case length is its length
+with each `{{variable}}` replaced by that many characters; compare it with
+`limits` (`{"sms.body": 160, "email.subject": 80, "email.body": 5000}`).
+
 ## Repository layout
 
 ```
@@ -76,7 +100,7 @@ backend/
   internal/
     config/        environment configuration
     store/         Postgres connection
-    httpapi/       HTTP routes
+    httpapi/       HTTP routes, SSE, error mapping
     seed/          deterministic fake users and events
     segment/       audience rule DSL: validator, SQL compiler, consent
     content/       message content: validation, worst-case length, rendering
@@ -105,8 +129,9 @@ Done:
 - Campaign flow service: segment generation and audience counts, content
   generation measured on the reachable audience, re-validated marketer edits,
   every LLM attempt stored in `llm_generations`.
+- HTTP API for the campaign flow with SSE content streaming; `LLM_MODE`
+  selects the mock or Claude client.
 
 Not done yet:
-- HTTP endpoints for the campaign flow, with SSE content streaming.
 - Approval flow, worker sending, retries, `/metrics`.
 - Vue frontend and live dashboard.
