@@ -44,6 +44,11 @@ func TestMockSegmentVariants(t *testing.T) {
 			`{"match": "all", "conditions": [{"field": "city", "op": "in", "value": ["Ankara", "İzmir"]}, {"event": "page_view", "within_days": 7, "exists": true}]}`},
 		{"Customers who purchased in the last 90 days",
 			`{"match": "all", "conditions": [{"event": "purchase", "within_days": 90, "exists": true}]}`},
+		{"İngilizce konuşan İstanbul kullanıcıları",
+			`{"match": "all", "conditions": [{"field": "city", "op": "eq", "value": "İstanbul"}, {"field": "language", "op": "eq", "value": "en"}]}`},
+		{"Turkish-speaking users who added to cart",
+			`{"match": "all", "conditions": [{"event": "cart_add", "within_days": 30, "exists": true}, {"field": "language", "op": "eq", "value": "tr"}]}`},
+		{"Both Turkish and English speakers", `{"match": "all", "conditions": []}`}, // naming both is no filter
 	}
 	for _, tt := range tests {
 		t.Run(tt.brief, func(t *testing.T) {
@@ -74,7 +79,8 @@ func TestMockContentIsValid(t *testing.T) {
 	cart := segment.Rule{Match: "all", Conditions: []segment.Condition{{Event: "cart_add", WithinDays: 30, Exists: new(true)}}}
 	english := segment.Rule{Match: "all", Conditions: []segment.Condition{{Field: "language", Op: "eq", Value: segment.Values{"en"}}}}
 	channelSets := [][]string{{"sms"}, {"email"}, {"sms", "email"}}
-	for _, brief := range []string{"Sepeti terk eden kullanıcılar", "Users who left their cart"} {
+	for _, brief := range []string{"Sepeti terk eden kullanıcılar", "Users who left their cart",
+		"Sepeti terk edenlere %30 indirim", "Users who left their cart, 30% off"} {
 		for _, rule := range []segment.Rule{{Match: "all"}, cart, english} {
 			for _, channels := range channelSets {
 				in := ContentInput{Brief: brief, Channels: channels, Rule: rule, Lengths: content.MaxLengths{}}
@@ -123,5 +129,57 @@ func TestMockIsDeterministic(t *testing.T) {
 	b, _ := (&Mock{}).Complete(context.Background(), req, nil)
 	if a.Text != b.Text {
 		t.Fatal("same input gave different output")
+	}
+}
+
+func TestMockSegmentLanguageNeedsCatalog(t *testing.T) {
+	r := mockSegment(SegmentInput{Brief: "English speakers", Catalog: segment.Catalog{"city": {"Ankara"}}})
+	if len(r.Conditions) != 0 {
+		t.Fatalf("rule = %+v, want no language condition without a language catalog", r)
+	}
+}
+
+func TestMockDiscount(t *testing.T) {
+	tests := map[string]int{
+		"Sepetini terk edenlere %30 indirim":     30,
+		"İndirim: % 15":                          15,
+		"Remind them with 20% off":               20,
+		"yüzde 25 indirim":                       25,
+		"Son 30 günde sepete ekleyenler":         0, // a day count is not a discount
+		"%100 indirim":                           0, // out of range
+		"No discount here":                       0,
+		"Son 30 günde, %10 indirim, sepet hatır": 10,
+	}
+	for brief, want := range tests {
+		if got := mockDiscount(brief); got != want {
+			t.Errorf("mockDiscount(%q) = %d, want %d", brief, got, want)
+		}
+	}
+}
+
+// The case's example brief asks for a 30% discount reminder; the mock must
+// carry the discount into every message, in the brief's language and style.
+func TestMockContentMentionsDiscount(t *testing.T) {
+	cart := segment.Rule{Match: "all", Conditions: []segment.Condition{{Event: "cart_add", WithinDays: 30, Exists: new(true)}}}
+	tests := []struct {
+		brief string
+		rule  segment.Rule
+		want  string
+	}{
+		{"Son 30 günde sepete ürün ekleyip satın almayan İstanbul kullanıcılarına %30 indirim hatırlatması", cart, "%30 indirim"},
+		{"Kampanya: yüzde 15 indirim", segment.Rule{}, "%15 indirim"},
+		{"Cart reminder with 30% discount", cart, "30% off"},
+		{"Spring sale, 20% for everyone", segment.Rule{}, "20% off"},
+	}
+	for _, tt := range tests {
+		c := mockContent(ContentInput{Brief: tt.brief, Channels: []string{"sms", "email"}, Rule: tt.rule})
+		for name, text := range map[string]string{"sms": c.SMS.Body, "subject": c.Email.Subject, "body": c.Email.Body} {
+			if !strings.Contains(text, tt.want) {
+				t.Errorf("brief %q: %s = %q, want it to mention %q", tt.brief, name, text, tt.want)
+			}
+		}
+	}
+	if c := mockContent(ContentInput{Brief: "Sepet hatırlatması", Channels: []string{"sms"}, Rule: cart}); strings.Contains(c.SMS.Body, "%") {
+		t.Errorf("no discount in the brief, but the SMS says %q", c.SMS.Body)
 	}
 }

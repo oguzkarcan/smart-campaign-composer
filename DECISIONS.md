@@ -65,9 +65,13 @@ appended at the bottom of each section.
   fix for the most common harmless formatting slip; anything else goes through
   validation and repair.
 - **The mock is a keyword reader, not random.** It finds catalog cities, cart,
-  purchase (and its negation), visits and "N days" in Turkish or English briefs,
-  and writes fixed templates short enough to pass even with unmeasured variable
-  lengths. The case's example brief gives the same rule as Claude would. A
+  purchase (and its negation), visits, "N days" and an explicitly named
+  language ("English", "Türkçe"; the language the brief is written in is not a
+  filter) in Turkish or English briefs. Content uses fixed templates short
+  enough to pass even with unmeasured variable lengths, and carries a discount
+  from the brief (`%30`, `30%`, `yüzde 30`) in the language's own style
+  ("%30 indirim", "30% off"). Like the real prompt, it uses only facts from the
+  brief: no discount is mentioned unless the brief has one. The case's example brief gives the same rule as Claude would. A
   separate `Scripted` client drives repair and failure paths in tests.
 
 ## Segment DSL

@@ -17,8 +17,9 @@ import (
 
 // Mock is a deterministic stand-in for Claude, used by default so the app and
 // the tests run without an API key. It reads simple keywords from the brief
-// (cities, cart, purchase, visits, a day count) in Turkish or English and
-// writes fixed templates. The same input always gives the same output.
+// (cities, languages, cart, purchase, visits, a day count, a discount) in
+// Turkish or English and writes fixed templates. The same input always gives
+// the same output.
 type Mock struct {
 	// Delay is the pause between streamed chunks, so streaming is visible in
 	// a demo. Zero in tests.
@@ -123,7 +124,52 @@ func mockSegment(in SegmentInput) segment.Rule {
 	if containsAny(brief, "ziyaret", "goruntule", "visited", "viewed", "browsed") {
 		rule.Conditions = append(rule.Conditions, event("page_view", true))
 	}
+	if lang := mockLanguage(brief, in.Catalog["language"]); lang != "" {
+		rule.Conditions = append(rule.Conditions, segment.Condition{Field: "language", Op: segment.OpEq, Value: segment.Values{lang}})
+	}
 	return rule
+}
+
+// languageWords are folded words that explicitly name an audience language.
+// The language the brief is written in is not a filter.
+var languageWords = map[string][]string{
+	"tr": {"turkce", "turkish"},
+	"en": {"ingilizce", "english"},
+}
+
+// mockLanguage returns the one language the brief names, if the catalog has
+// it; naming both languages means no language restriction.
+func mockLanguage(brief string, allowed []string) string {
+	var found []string
+	for _, lang := range allowed {
+		if containsAny(brief, languageWords[lang]...) {
+			found = append(found, lang)
+		}
+	}
+	if len(found) != 1 {
+		return ""
+	}
+	return found[0]
+}
+
+// discountPatterns match "%30", "30%" and "yüzde 30" in a folded brief.
+var discountPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`%\s*(\d{1,2})\b`),
+	regexp.MustCompile(`\b(\d{1,2})\s*%`),
+	regexp.MustCompile(`\byuzde\s*(\d{1,2})\b`),
+}
+
+// mockDiscount returns the discount percentage the brief mentions (1-99), or 0.
+func mockDiscount(brief string) int {
+	folded := segment.Fold(brief)
+	for _, re := range discountPatterns {
+		if m := re.FindStringSubmatch(folded); m != nil {
+			if n, err := strconv.Atoi(m[1]); err == nil && n >= 1 && n <= 99 {
+				return n
+			}
+		}
+	}
+	return 0
 }
 
 func containsAny(s string, subs ...string) bool {
@@ -149,22 +195,41 @@ func mockContent(in ContentInput) content.Content {
 	for _, c := range in.Rule.Conditions {
 		cart = cart || c.Event == "cart_add"
 	}
+	discount := mockDiscount(in.Brief)
+	tr := fmt.Sprintf("%%%d indirim", discount) // Turkish writes the sign first
+	en := fmt.Sprintf("%d%% off", discount)
 
 	// Short texts so they fit even with UnknownLength variables.
 	var smsBody, subject, body string
 	switch {
+	case turkish && cart && discount > 0:
+		smsBody = "{{first_name}}, sepetindeki ürünler seni bekliyor! Bugün " + tr + "le tamamla."
+		subject = "{{first_name}}, sepetinde " + tr + " seni bekliyor!"
+		body = "Merhaba {{first_name}},\n\nSepetine eklediğin ürünler hâlâ seni bekliyor. Siparişini bugün " + tr + "le tamamla.\n\n{{city}} için teslimat seçeneklerini ödeme adımında görebilirsin."
 	case turkish && cart:
 		smsBody = "{{first_name}}, sepetindeki ürünler seni bekliyor! Siparişini bugün tamamla."
 		subject = "{{first_name}}, sepetini unutma!"
 		body = "Merhaba {{first_name}},\n\nSepetine eklediğin ürünler hâlâ seni bekliyor. Stoklar tükenmeden siparişini tamamla.\n\n{{city}} için teslimat seçeneklerini ödeme adımında görebilirsin."
+	case turkish && discount > 0:
+		smsBody = "{{first_name}}, sana özel " + tr + " seni bekliyor! Hemen göz at."
+		subject = "{{first_name}}, sana özel " + tr
+		body = "Merhaba {{first_name}},\n\nSana özel " + tr + " yayında. {{city}} için teslimat seçeneklerini ödeme adımında görebilirsin."
 	case turkish:
 		smsBody = "{{first_name}}, sana özel yeni fırsatlar seni bekliyor! Hemen göz at."
 		subject = "{{first_name}}, sana özel fırsatlar"
 		body = "Merhaba {{first_name}},\n\nSenin için seçtiğimiz yeni fırsatlar yayında. {{city}} için teslimat seçeneklerini ödeme adımında görebilirsin."
+	case cart && discount > 0:
+		smsBody = "{{first_name}}, your cart is waiting! Complete your order today with " + en + "."
+		subject = "{{first_name}}, " + en + " your cart today"
+		body = "Hi {{first_name}},\n\nThe items you added to your cart are still waiting. Complete your order today with " + en + ".\n\nYou can see delivery options for {{city}} at checkout."
 	case cart:
 		smsBody = "{{first_name}}, the items in your cart are waiting for you! Complete your order today."
 		subject = "{{first_name}}, you left something behind"
 		body = "Hi {{first_name}},\n\nThe items you added to your cart are still waiting. Complete your order before they sell out.\n\nYou can see delivery options for {{city}} at checkout."
+	case discount > 0:
+		smsBody = "{{first_name}}, enjoy " + en + " on offers picked for you! Take a look today."
+		subject = "{{first_name}}, " + en + " just for you"
+		body = "Hi {{first_name}},\n\nEnjoy " + en + " on offers we picked for you. You can see delivery options for {{city}} at checkout."
 	default:
 		smsBody = "{{first_name}}, new offers picked for you are waiting! Take a look today."
 		subject = "{{first_name}}, new offers picked for you"
