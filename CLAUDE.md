@@ -134,7 +134,7 @@ segment DSL + validator + SQL compiler + consent.
   for hash-based A/B variants in `README.md`'s unfinished scope.
 - [x] 4. Final verification (`make vet`, `make test`, `make test-integration`),
   update `README.md` and `DECISIONS.md`, and export + scrub
-  `ai-sessions/06-day6-scheduling-multilang-and-ux.md` (the export is taken
+  `ai-sessions/06-extra-scheduling-multilang-and-ux.md` (the export is taken
   once steps 5 and 6 are done).
 - [x] 5. Matching people (read-only): `GET /campaigns/{id}/recipients`
   (`limit`/`offset`, users the segment rule matches with per-channel consent),
