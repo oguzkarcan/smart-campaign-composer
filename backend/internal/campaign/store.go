@@ -274,6 +274,88 @@ func enqueue(ctx context.Context, tx pgx.Tx, id int64, r segment.Rule, channel s
 	return int(tag.RowsAffected()), nil
 }
 
+// maxFailureReasons bounds the failure list; errors are grouped by text.
+const maxFailureReasons = 5
+
+func (s *PGStore) Progress(ctx context.Context, id int64) (Progress, error) {
+	p := Progress{CampaignID: id, Channels: map[string]Counts{}}
+	var channels []string
+	err := s.db.QueryRow(ctx, "SELECT status, channels FROM campaigns WHERE id = $1", id).Scan(&p.Status, &channels)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Progress{}, ErrNotFound
+	}
+	if err != nil {
+		return Progress{}, fmt.Errorf("get campaign %d: %w", id, err)
+	}
+	for _, ch := range channels {
+		p.Channels[ch] = Counts{}
+	}
+
+	rows, err := s.db.Query(ctx, "SELECT channel, status, count(*) FROM messages WHERE campaign_id = $1 GROUP BY 1, 2", id)
+	if err != nil {
+		return Progress{}, fmt.Errorf("count messages: %w", err)
+	}
+	var ch, status string
+	var n int
+	_, err = pgx.ForEachRow(rows, []any{&ch, &status, &n}, func() error {
+		c := p.Channels[ch]
+		c.Add(status, n)
+		p.Channels[ch] = c
+		p.Totals.Add(status, n)
+		return nil
+	})
+	if err != nil {
+		return Progress{}, fmt.Errorf("count messages: %w", err)
+	}
+
+	rows, err = s.db.Query(ctx, `
+		SELECT coalesce(last_error, 'unknown error'), count(*) FROM messages
+		WHERE campaign_id = $1 AND status = 'failed'
+		GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT $2`, id, maxFailureReasons)
+	if err != nil {
+		return Progress{}, fmt.Errorf("read failures: %w", err)
+	}
+	p.Failures, err = pgx.CollectRows(rows, pgx.RowToStructByPos[FailureReason])
+	if err != nil {
+		return Progress{}, fmt.Errorf("read failures: %w", err)
+	}
+	return p, nil
+}
+
+func (s *PGStore) List(ctx context.Context, limit int, before int64) ([]Summary, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT c.id, c.brief, c.status, c.channels, coalesce(c.last_error, ''), c.approved_at, c.created_at, c.updated_at,
+		       coalesce(m.total, 0), coalesce(m.queued, 0), coalesce(m.processing, 0),
+		       coalesce(m.retry, 0), coalesce(m.sent, 0), coalesce(m.failed, 0)
+		FROM campaigns c
+		LEFT JOIN LATERAL (
+			SELECT count(*) AS total,
+			       count(*) FILTER (WHERE status = 'queued') AS queued,
+			       count(*) FILTER (WHERE status = 'processing') AS processing,
+			       count(*) FILTER (WHERE status = 'retry') AS retry,
+			       count(*) FILTER (WHERE status = 'sent') AS sent,
+			       count(*) FILTER (WHERE status = 'failed') AS failed
+			FROM messages WHERE campaign_id = c.id
+		) m ON true
+		WHERE $2 = 0 OR c.id < $2
+		ORDER BY c.id DESC
+		LIMIT $1`, limit, before)
+	if err != nil {
+		return nil, fmt.Errorf("list campaigns: %w", err)
+	}
+	list, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (Summary, error) {
+		var c Summary
+		m := &c.Messages
+		err := row.Scan(&c.ID, &c.Brief, &c.Status, &c.Channels, &c.LastError, &c.ApprovedAt, &c.CreatedAt, &c.UpdatedAt,
+			&m.Total, &m.Queued, &m.Processing, &m.Retry, &m.Sent, &m.Failed)
+		return c, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list campaigns: %w", err)
+	}
+	return list, nil
+}
+
 // conflict explains why a guarded update matched no rows.
 func (s *PGStore) conflict(ctx context.Context, tx pgx.Tx, id int64) error {
 	var status string

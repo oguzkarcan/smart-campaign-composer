@@ -15,6 +15,7 @@ import (
 	"github.com/oguzkarcan/smart-campaign-composer/backend/internal/config"
 	"github.com/oguzkarcan/smart-campaign-composer/backend/internal/httpapi"
 	"github.com/oguzkarcan/smart-campaign-composer/backend/internal/llm"
+	"github.com/oguzkarcan/smart-campaign-composer/backend/internal/metrics"
 	"github.com/oguzkarcan/smart-campaign-composer/backend/internal/store"
 )
 
@@ -42,7 +43,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpapi.New(pool, campaign.NewService(campaign.NewPGStore(pool), newLLM(cfg))).Handler(),
+		Handler:           httpapi.New(pool, campaign.NewService(campaign.NewPGStore(pool), newLLM(cfg)), metrics.NewPG(pool)).Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

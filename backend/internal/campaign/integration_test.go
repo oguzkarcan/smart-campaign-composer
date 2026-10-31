@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -260,5 +261,69 @@ func TestIntegrationApproveUnreachableAudience(t *testing.T) {
 	}
 	if c, _ = svc.Get(ctx, c.ID); c.Status != StatusContentReady || c.ApprovedAt != nil {
 		t.Fatalf("status %s, approved_at %v", c.Status, c.ApprovedAt)
+	}
+}
+
+func TestIntegrationProgressAndList(t *testing.T) {
+	ctx := context.Background()
+	db := testDB(t)
+	svc := NewService(NewPGStore(db), &llm.Mock{})
+	c := createForTest(t, svc, db, []string{"sms", "email"})
+	if _, err := svc.GenerateSegment(ctx, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.GenerateContent(ctx, c.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	if p, err := svc.Progress(ctx, c.ID); err != nil || p.Totals.Total != 0 || len(p.Channels) != 2 || p.Done {
+		t.Fatalf("before approval: %+v, err %v", p, err)
+	}
+	c, err := svc.Approve(ctx, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate some delivery: two sent, three failed with two reasons.
+	_, err = db.Exec(ctx, `
+		WITH picked AS (SELECT id, row_number() OVER (ORDER BY id) AS n FROM messages WHERE campaign_id = $1 AND channel = 'sms')
+		UPDATE messages m SET
+		    status = CASE WHEN p.n <= 2 THEN 'sent' ELSE 'failed' END,
+		    sent_at = CASE WHEN p.n <= 2 THEN now() END,
+		    last_error = CASE WHEN p.n IN (3, 4) THEN 'provider returned 400: bad phone' WHEN p.n = 5 THEN 'lease expired' END
+		FROM picked p WHERE m.id = p.id AND p.n <= 5`, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := svc.Progress(ctx, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sms, email := p.Channels["sms"], p.Channels["email"]
+	if sms.Total != c.Audience.SMS || sms.Sent != 2 || sms.Failed != 3 || sms.Queued != c.Audience.SMS-5 ||
+		email.Total != c.Audience.Email || email.Queued != email.Total || p.Totals.Total != sms.Total+email.Total {
+		t.Fatalf("progress = %+v (audience %+v)", p, c.Audience)
+	}
+	if len(p.Failures) != 2 || p.Failures[0] != (FailureReason{Error: "provider returned 400: bad phone", Count: 2}) {
+		t.Fatalf("failures = %+v", p.Failures)
+	}
+
+	list, err := svc.List(ctx, 200, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := slices.IndexFunc(list, func(s Summary) bool { return s.ID == c.ID })
+	if i < 0 || list[i].Messages != p.Totals || list[i].Status != StatusSending || list[i].ApprovedAt == nil {
+		t.Fatalf("list entry = %+v, want messages %+v", list, p.Totals)
+	}
+	for j := 1; j < len(list); j++ {
+		if list[j].ID >= list[j-1].ID {
+			t.Fatal("list is not newest first")
+		}
+	}
+	if older, err := svc.List(ctx, 1, c.ID); err != nil || len(older) == 1 && older[0].ID >= c.ID {
+		t.Fatalf("before %d: %+v, err %v", c.ID, older, err)
+	}
+	if _, err := svc.Progress(ctx, -1); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown campaign: %v", err)
 	}
 }

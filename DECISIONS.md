@@ -352,6 +352,40 @@ appended at the bottom of each section.
   just "process is up": an API that cannot reach its database cannot do any
   useful work. The pool reconnects on its own, so health recovers without a
   restart. Compose uses it as the API healthcheck, and the frontend waits for it.
+- **Metrics are read from Postgres at scrape time,** not counted in memory.
+  Messages, provider calls and LLM attempts are all rows already, so the
+  API's `/metrics` also covers the worker's work, survives restarts, and the
+  two processes share nothing. Each scrape is a few aggregates; with millions
+  of messages these would become counters kept by the worker or a summary
+  table. `*_total` series are row counts, so they only drop if campaigns are
+  deleted.
+- **Metrics:** `scc_messages{channel,status}`, `scc_campaigns{status}`,
+  `scc_provider_attempts_total{channel,outcome,code}` (outcome sent / retry /
+  permanent, code 2xx / 429 / 4xx / 5xx / none),
+  `scc_provider_attempt_duration_seconds` and
+  `scc_llm_generation_duration_seconds` (sum and count),
+  `scc_llm_generations_total{kind,result}` (valid / invalid / error) and
+  `scc_llm_tokens_total{kind,direction}`. Known label combinations are always
+  written (as 0), so a series exists before its first event.
+- **`message_attempts.outcome` stores the worker's classification.** The
+  HTTP status alone cannot tell a timeout (retried) from a message that
+  failed rendering (never sent); both have no status. Rows from before the
+  column are reported as `outcome="unknown"`.
+- **Rendered into a buffer first,** so a failed database read is a clean 500,
+  not a truncated scrape that looks like missing series.
+- **The live dashboard is an SSE stream that polls the database** once a
+  second per open stream and sends `progress` only when a count or the status
+  changes (plus a comment every 15 s to keep proxies from closing it). The
+  worker is another process, so the API learns about progress from the
+  database either way; polling is simpler than LISTEN/NOTIFY and cheap at
+  this scale. The stream ends after the `done` event; since `EventSource`
+  reconnects on close, the client closes it on `done`.
+- **Progress shows the top failure reasons** (failed messages grouped by
+  `last_error`, five most common), so a marketer sees why messages failed,
+  not just how many.
+- **`GET /campaigns` pages by id** (`?limit=50&before=<id>`, newest first): a
+  stable cursor that does not skip or repeat rows when new campaigns are
+  created between pages, unlike an offset.
 
 ## Schema
 

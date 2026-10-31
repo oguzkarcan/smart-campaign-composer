@@ -89,7 +89,7 @@ segment DSL + validator + SQL compiler + consent.
   token bucket 100/s, record `message_attempts`, backoff with jitter (1 s base,
   60 s cap, max 5 attempts), lease recovery loop, campaign `completed` detection,
   graceful shutdown.
-- [ ] 4. `/metrics` (Prometheus text: messages by status/channel, provider
+- [x] 4. `/metrics` (Prometheus text: messages by status/channel, provider
   attempts by outcome, LLM generations) and campaign status endpoint +
   `GET /campaigns/{id}/events` SSE for the live dashboard; `GET /campaigns` list.
 - [ ] 5. Tests: retry/backoff math, 429 Retry-After, permanent errors, idempotent

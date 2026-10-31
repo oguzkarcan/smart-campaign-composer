@@ -121,6 +121,10 @@ type Store interface {
 	// no longer at the validated versions (channel → version) or nobody can
 	// be reached.
 	Approve(ctx context.Context, id int64, versions map[string]int, now time.Time) error
+	// Progress counts the campaign's messages; ErrNotFound if it does not exist.
+	Progress(ctx context.Context, id int64) (Progress, error)
+	// List returns campaigns newest first, with ids below before (0: no bound).
+	List(ctx context.Context, limit int, before int64) ([]Summary, error)
 
 	Catalog(ctx context.Context) (segment.Catalog, error)
 	Count(ctx context.Context, r segment.Rule, now time.Time) (segment.Audience, error)
@@ -329,6 +333,104 @@ func (s *Service) Approve(ctx context.Context, id int64) (Campaign, error) {
 		return Campaign{}, err
 	}
 	return s.Get(ctx, id)
+}
+
+// Counts are a campaign's messages by status.
+type Counts struct {
+	Total      int `json:"total"`
+	Queued     int `json:"queued"`
+	Processing int `json:"processing"`
+	Retry      int `json:"retry"`
+	Sent       int `json:"sent"`
+	Failed     int `json:"failed"`
+}
+
+// Add counts n messages with status.
+func (c *Counts) Add(status string, n int) {
+	c.Total += n
+	switch status {
+	case "queued":
+		c.Queued += n
+	case "processing":
+		c.Processing += n
+	case "retry":
+		c.Retry += n
+	case "sent":
+		c.Sent += n
+	case "failed":
+		c.Failed += n
+	}
+}
+
+// FailureReason groups failed messages by their last error.
+type FailureReason struct {
+	Error string `json:"error"`
+	Count int    `json:"count"`
+}
+
+// Progress is the live view of a campaign's delivery.
+type Progress struct {
+	CampaignID int64             `json:"campaign_id"`
+	Status     string            `json:"status"`
+	Done       bool              `json:"done"` // completed or failed; nothing will change
+	Totals     Counts            `json:"totals"`
+	Channels   map[string]Counts `json:"channels"`
+	// Failures are the most common reasons messages failed.
+	Failures []FailureReason `json:"failures"`
+}
+
+// Summary is a campaign in the list.
+type Summary struct {
+	ID         int64      `json:"id"`
+	Brief      string     `json:"brief"`
+	Status     string     `json:"status"`
+	Channels   []string   `json:"channels"`
+	Messages   Counts     `json:"messages"`
+	LastError  string     `json:"last_error,omitempty"`
+	ApprovedAt *time.Time `json:"approved_at,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+	UpdatedAt  time.Time  `json:"updated_at"`
+}
+
+const (
+	DefaultListLimit = 50
+	MaxListLimit     = 200
+)
+
+// Progress returns the delivery counts; every campaign channel is present,
+// even before approval (all zero).
+func (s *Service) Progress(ctx context.Context, id int64) (Progress, error) {
+	p, err := s.store.Progress(ctx, id)
+	if err != nil {
+		return Progress{}, err
+	}
+	p.Done = p.Status == StatusCompleted || p.Status == StatusFailed
+	if p.Failures == nil {
+		p.Failures = []FailureReason{}
+	}
+	return p, nil
+}
+
+// List returns up to limit campaigns, newest first; before pages backwards
+// by id. A limit of 0 means DefaultListLimit.
+func (s *Service) List(ctx context.Context, limit int, before int64) ([]Summary, error) {
+	switch {
+	case limit == 0:
+		limit = DefaultListLimit
+	case limit < 0 || limit > MaxListLimit:
+		return nil, fmt.Errorf("%w: limit must be 1-%d", ErrInvalid, MaxListLimit)
+	}
+	if before < 0 {
+		return nil, fmt.Errorf("%w: before must be a campaign id", ErrInvalid)
+	}
+	list, err := s.store.List(ctx, limit, before)
+	if err != nil {
+		return nil, err
+	}
+	if list == nil {
+		list = []Summary{}
+	}
+	return list, nil
 }
 
 // fail records a generation error on the campaign for the UI and returns it.

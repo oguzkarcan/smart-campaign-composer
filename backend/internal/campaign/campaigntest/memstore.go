@@ -28,6 +28,10 @@ type MemStore struct {
 	// Queued is how many messages approval enqueued per campaign: the
 	// audience snapshot's consented counts for the campaign's channels.
 	Queued map[int64]int
+	// Messages are the message counts Progress and List report per
+	// campaign and channel; tests set them to simulate delivery.
+	Messages map[int64]map[string]campaign.Counts
+	Failures map[int64][]campaign.FailureReason
 }
 
 func NewMemStore() *MemStore {
@@ -37,6 +41,8 @@ func NewMemStore() *MemStore {
 		Lens:      content.MaxLengths{content.VarFirstName: 13, content.VarCity: 10},
 		attempts:  map[int64]*llm.MemoryRecorder{},
 		Queued:    map[int64]int{},
+		Messages:  map[int64]map[string]campaign.Counts{},
+		Failures:  map[int64][]campaign.FailureReason{},
 	}
 }
 
@@ -158,6 +164,62 @@ func (s *MemStore) Approve(_ context.Context, id int64, versions map[string]int,
 	s.Queued[id] = c.Reachable()
 	c.Status, c.ApprovedAt, c.LastError = campaign.StatusSending, &now, ""
 	return nil
+}
+
+func (s *MemStore) Progress(_ context.Context, id int64) (campaign.Progress, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, ok := s.campaigns[id]
+	if !ok {
+		return campaign.Progress{}, campaign.ErrNotFound
+	}
+	p := campaign.Progress{CampaignID: id, Status: c.Status, Channels: map[string]campaign.Counts{},
+		Failures: slices.Clone(s.Failures[id])}
+	for _, ch := range c.Channels {
+		counts := s.Messages[id][ch]
+		p.Channels[ch] = counts
+		p.Totals.Add("queued", counts.Queued)
+		p.Totals.Add("processing", counts.Processing)
+		p.Totals.Add("retry", counts.Retry)
+		p.Totals.Add("sent", counts.Sent)
+		p.Totals.Add("failed", counts.Failed)
+	}
+	return p, nil
+}
+
+func (s *MemStore) List(_ context.Context, limit int, before int64) ([]campaign.Summary, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []campaign.Summary
+	for id := s.nextID; id > 0 && len(out) < limit; id-- {
+		c, ok := s.campaigns[id]
+		if !ok || (before != 0 && id >= before) {
+			continue
+		}
+		var m campaign.Counts
+		for _, counts := range s.Messages[id] {
+			m.Add("queued", counts.Queued)
+			m.Add("processing", counts.Processing)
+			m.Add("retry", counts.Retry)
+			m.Add("sent", counts.Sent)
+			m.Add("failed", counts.Failed)
+		}
+		out = append(out, campaign.Summary{ID: id, Brief: c.Brief, Status: c.Status, Channels: c.Channels,
+			Messages: m, LastError: c.LastError, ApprovedAt: c.ApprovedAt})
+	}
+	return out, nil
+}
+
+// SetMessages sets the message counts of one campaign channel and its status.
+func (s *MemStore) SetMessages(id int64, channel string, counts campaign.Counts, status string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.Messages[id] == nil {
+		s.Messages[id] = map[string]campaign.Counts{}
+	}
+	counts.Total = counts.Queued + counts.Processing + counts.Retry + counts.Sent + counts.Failed
+	s.Messages[id][channel] = counts
+	s.campaigns[id].Status = status
 }
 
 func (s *MemStore) Catalog(context.Context) (segment.Catalog, error) { return Catalog, nil }

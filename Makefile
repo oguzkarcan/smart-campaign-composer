@@ -41,6 +41,7 @@ test: ## Run backend tests (mock LLM, no API key needed)
 # The compose worker is paused meanwhile, so it does not take the tests'
 # queued messages; it is started again afterwards, even if the tests fail.
 test-integration: ## Run DB integration tests against the seeded compose Postgres
+	docker compose run --rm migrate
 	docker compose run --rm seed
 	docker compose stop worker
 	$(MAKE) --no-print-directory _test-integration $(INTEGRATION_FLAGS); \

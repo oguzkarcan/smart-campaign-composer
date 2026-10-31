@@ -81,7 +81,11 @@ All bodies are JSON. Errors are `{"error": "...", "problems": [{"path", "message
 | `POST /campaigns/{id}/content`         | Generates content, streamed as SSE: `delta` `{"attempt", "text"}`, then `done` (campaign) or `error`. A higher `attempt` means a repair round started. Errors before streaming starts are plain JSON. |
 | `PUT /campaigns/{id}/content/{channel}`| `{"subject", "body"}` → marketer edit, validated like generated content (`422` with `problems`). |
 | `POST /campaigns/{id}/approve`         | No body. Re-validates the content against today's audience (`422` if it no longer fits), locks it, queues one message per consented recipient and channel, status → `sending`. `409` if not `content_ready`, edited meanwhile, or nobody is reachable. |
+| `GET /campaigns`                       | Campaigns newest first with message counts. `?limit=` (1–200, default 50), `?before=<id>` for the next page. |
+| `GET /campaigns/{id}/progress`         | Delivery progress: message counts by status (`totals` and per channel), top failure reasons, `done`. |
+| `GET /campaigns/{id}/events`           | SSE for the live dashboard: a `progress` event now and on every change; ends after one with `"done": true` (close the `EventSource` then). |
 | `GET /health`                          | `200` when the database is reachable, `503` otherwise. |
+| `GET /metrics`                         | Prometheus text format: messages by channel/status, campaigns by status, provider calls by outcome and code, provider and LLM latency, LLM generations and tokens. |
 
 Status codes: `400` bad input, `404` unknown campaign, `409` not allowed in the
 campaign's status (e.g. after approval), `422` invalid content or model output,
@@ -139,7 +143,8 @@ Done:
 - Worker: claims with `FOR UPDATE SKIP LOCKED` and a 30 s lease, 100 msg/s
   per channel, up to 5 attempts with jittered exponential backoff and
   `Retry-After`, lease recovery, campaign completion, graceful shutdown.
+- `/metrics` (Prometheus), campaign list, delivery progress and a live SSE
+  progress stream for the dashboard.
 
 Not done yet:
-- `/metrics`, campaign events (SSE) and campaign list endpoints.
 - Vue frontend and live dashboard.

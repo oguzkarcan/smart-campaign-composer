@@ -8,7 +8,9 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"reflect"
 	"strconv"
+	"time"
 
 	"github.com/oguzkarcan/smart-campaign-composer/backend/internal/campaign"
 	"github.com/oguzkarcan/smart-campaign-composer/backend/internal/content"
@@ -149,6 +151,102 @@ func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, c)
 }
 
+// handleListCampaigns serves GET /campaigns?limit=50&before=<id>, newest
+// first. The next page is before=<id of the last campaign>.
+func (s *Server) handleListCampaigns(w http.ResponseWriter, r *http.Request) {
+	var limit int
+	var before int64
+	var err error
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if limit, err = strconv.Atoi(v); err != nil || limit == 0 {
+			writeError(w, fmt.Errorf("%w: limit must be 1-%d", campaign.ErrInvalid, campaign.MaxListLimit))
+			return
+		}
+	}
+	if v := r.URL.Query().Get("before"); v != "" {
+		if before, err = strconv.ParseInt(v, 10, 64); err != nil || before < 1 {
+			writeError(w, fmt.Errorf("%w: before must be a campaign id", campaign.ErrInvalid))
+			return
+		}
+	}
+	list, err := s.campaigns.List(r.Context(), limit, before)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) handleProgress(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	p, err := s.campaigns.Progress(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
+}
+
+// heartbeatInterval keeps idle event streams alive through proxies.
+const heartbeatInterval = 15 * time.Second
+
+// handleEvents streams a campaign's progress as server-sent events for the
+// live dashboard:
+//
+//	event: progress  data: <progress>   now, then whenever a count or the status changes
+//
+// The stream ends after a progress event with "done": true (completed or
+// failed). EventSource reconnects when a stream ends, so the client should
+// close it on done. An unknown campaign is a plain 404 before the stream.
+// Progress is polled from the database every eventsInterval: the worker is
+// another process, and a one-second poll per open dashboard is cheap here
+// (LISTEN/NOTIFY would be the next step).
+func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	last, err := s.campaigns.Progress(ctx, id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	stream := newSSE(w)
+	stream.send("progress", last)
+
+	tick := time.NewTicker(s.eventsInterval)
+	defer tick.Stop()
+	lastSent := time.Now()
+	for !last.Done && !stream.broken {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+		p, err := s.campaigns.Progress(ctx, id)
+		if err != nil {
+			if ctx.Err() == nil {
+				status, body := errorBody(err)
+				body.Status = status
+				stream.send("error", body)
+			}
+			return
+		}
+		switch {
+		case !reflect.DeepEqual(p, last):
+			stream.send("progress", p)
+			last, lastSent = p, time.Now()
+		case time.Since(lastSent) >= heartbeatInterval:
+			stream.comment("keep-alive")
+			lastSent = time.Now()
+		}
+	}
+}
+
 func pathID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil || id < 1 {
@@ -256,6 +354,17 @@ type sse struct {
 
 func newSSE(w http.ResponseWriter) *sse {
 	return &sse{w: w, rc: http.NewResponseController(w)}
+}
+
+// comment writes an SSE comment line, which clients ignore; it keeps an
+// idle connection from being closed by proxies.
+func (s *sse) comment(text string) {
+	if s.broken || !s.started {
+		return
+	}
+	if _, err := fmt.Fprintf(s.w, ": %s\n\n", text); err != nil || s.rc.Flush() != nil {
+		s.broken = true
+	}
 }
 
 func (s *sse) send(event string, v any) {

@@ -80,10 +80,10 @@ func (q *PGQueue) Finish(ctx context.Context, j Job, res Result, d Decision) (bo
 	var updated bool
 	err := pgx.BeginFunc(ctx, q.db, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO message_attempts (message_id, attempt, http_status, error, latency_ms)
-			VALUES ($1, $2, $3, $4, $5)
+			INSERT INTO message_attempts (message_id, attempt, http_status, error, latency_ms, outcome)
+			VALUES ($1, $2, $3, $4, $5, $6)
 			ON CONFLICT (message_id, attempt) DO NOTHING`,
-			j.MessageID, j.Attempt, status, errText, res.Latency.Milliseconds())
+			j.MessageID, j.Attempt, status, errText, res.Latency.Milliseconds(), res.Outcome.String())
 		if err != nil {
 			return fmt.Errorf("record attempt: %w", err)
 		}

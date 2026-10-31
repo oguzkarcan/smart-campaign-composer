@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/oguzkarcan/smart-campaign-composer/backend/internal/campaign"
 	"github.com/oguzkarcan/smart-campaign-composer/backend/internal/campaign/campaigntest"
@@ -26,7 +28,9 @@ func TestMain(m *testing.M) {
 
 func newTestAPI(client llm.Client) (http.Handler, *campaigntest.MemStore) {
 	store := campaigntest.NewMemStore()
-	return New(fakePinger{}, campaign.NewService(store, client)).Handler(), store
+	srv := New(fakePinger{}, campaign.NewService(store, client), fakeMetrics{})
+	srv.eventsInterval = 5 * time.Millisecond
+	return srv.Handler(), store
 }
 
 func do(t *testing.T, h http.Handler, method, path, body string) *httptest.ResponseRecorder {
@@ -324,5 +328,129 @@ func TestApproveRevalidates(t *testing.T) {
 	w := do(t, h, "POST", "/campaigns/1/approve", "")
 	if w.Code != http.StatusUnprocessableEntity || len(decodeBody[errorResponse](t, w).Problems) == 0 {
 		t.Fatalf("%d %s", w.Code, w.Body)
+	}
+}
+
+func TestListCampaigns(t *testing.T) {
+	h, store := newTestAPI(&llm.Mock{})
+	for range 3 {
+		create(t, h, `["sms"]`)
+	}
+	store.SetMessages(2, "sms", campaign.Counts{Sent: 5, Failed: 1}, campaign.StatusSending)
+
+	w := do(t, h, "GET", "/campaigns", "")
+	list := decodeBody[[]campaign.Summary](t, w)
+	if w.Code != http.StatusOK || len(list) != 3 || list[0].ID != 3 || list[1].Messages != (campaign.Counts{Total: 6, Sent: 5, Failed: 1}) {
+		t.Fatalf("%d %+v", w.Code, list)
+	}
+	w = do(t, h, "GET", "/campaigns?limit=1&before=3", "")
+	if list = decodeBody[[]campaign.Summary](t, w); w.Code != http.StatusOK || len(list) != 1 || list[0].ID != 2 {
+		t.Fatalf("page 2: %d %+v", w.Code, list)
+	}
+	if w = do(t, h, "GET", "/campaigns?before=1", ""); w.Code != http.StatusOK || w.Body.String() != "[]\n" {
+		t.Fatalf("empty page: %d %q", w.Code, w.Body)
+	}
+	for _, q := range []string{"limit=0", "limit=201", "limit=-1", "limit=x", "before=0", "before=x"} {
+		if w := do(t, h, "GET", "/campaigns?"+q, ""); w.Code != http.StatusBadRequest {
+			t.Errorf("%s: %d %s", q, w.Code, w.Body)
+		}
+	}
+}
+
+func TestProgress(t *testing.T) {
+	h, store := newTestAPI(&llm.Mock{})
+	create(t, h, `["sms", "email"]`)
+
+	w := do(t, h, "GET", "/campaigns/1/progress", "")
+	p := decodeBody[campaign.Progress](t, w)
+	if w.Code != http.StatusOK || len(p.Channels) != 2 || p.Totals.Total != 0 || p.Done || p.Failures == nil {
+		t.Fatalf("before approval: %d %s", w.Code, w.Body)
+	}
+
+	store.SetMessages(1, "sms", campaign.Counts{Sent: 90, Retry: 5, Failed: 5}, campaign.StatusSending)
+	store.SetMessages(1, "email", campaign.Counts{Queued: 50, Processing: 10}, campaign.StatusSending)
+	store.Failures[1] = []campaign.FailureReason{{Error: "provider returned 400: to must be an E.164 phone number", Count: 5}}
+	p = decodeBody[campaign.Progress](t, do(t, h, "GET", "/campaigns/1/progress", ""))
+	want := campaign.Counts{Total: 160, Queued: 50, Processing: 10, Retry: 5, Sent: 90, Failed: 5}
+	if p.Totals != want || p.Channels["sms"].Total != 100 || p.Status != campaign.StatusSending || len(p.Failures) != 1 {
+		t.Fatalf("sending: %+v", p)
+	}
+
+	if w := do(t, h, "GET", "/campaigns/9/progress", ""); w.Code != http.StatusNotFound {
+		t.Fatalf("unknown: %d", w.Code)
+	}
+}
+
+// The event stream sends progress now, again on every change, and ends with
+// done once the campaign finishes.
+func TestEventsStreamUntilDone(t *testing.T) {
+	h, store := newTestAPI(&llm.Mock{})
+	create(t, h, `["sms"]`)
+	store.SetMessages(1, "sms", campaign.Counts{Queued: 10}, campaign.StatusSending)
+
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	resp, err := http.Get(srv.URL + "/campaigns/1/events")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != "text/event-stream" {
+		t.Fatalf("%d %s", resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+
+	events := make(chan campaign.Progress)
+	go func() {
+		defer close(events)
+		sc := bufio.NewScanner(resp.Body)
+		for sc.Scan() {
+			if data, ok := strings.CutPrefix(sc.Text(), "data: "); ok {
+				var p campaign.Progress
+				if json.Unmarshal([]byte(data), &p) == nil {
+					events <- p
+				}
+			}
+		}
+	}()
+	next := func() campaign.Progress {
+		t.Helper()
+		select {
+		case p, ok := <-events:
+			if !ok {
+				t.Fatal("stream ended early")
+			}
+			return p
+		case <-time.After(2 * time.Second):
+			t.Fatal("no event")
+		}
+		return campaign.Progress{}
+	}
+
+	if p := next(); p.Totals.Queued != 10 || p.Done {
+		t.Fatalf("first event: %+v", p)
+	}
+	store.SetMessages(1, "sms", campaign.Counts{Queued: 4, Sent: 6}, campaign.StatusSending)
+	if p := next(); p.Totals.Sent != 6 || p.Done {
+		t.Fatalf("after progress: %+v", p)
+	}
+	store.SetMessages(1, "sms", campaign.Counts{Sent: 9, Failed: 1}, campaign.StatusCompleted)
+	if p := next(); !p.Done || p.Status != campaign.StatusCompleted || p.Totals.Sent != 9 {
+		t.Fatalf("final event: %+v", p)
+	}
+	select {
+	case _, ok := <-events:
+		if ok {
+			t.Fatal("event after done")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("stream did not end after done")
+	}
+}
+
+func TestEventsUnknownCampaignIsPlain404(t *testing.T) {
+	h, _ := newTestAPI(&llm.Mock{})
+	w := do(t, h, "GET", "/campaigns/9/events", "")
+	if w.Code != http.StatusNotFound || w.Header().Get("Content-Type") != "application/json" {
+		t.Fatalf("%d %s", w.Code, w.Header().Get("Content-Type"))
 	}
 }
