@@ -3,6 +3,7 @@ import { computed, onUnmounted, ref, watch } from 'vue'
 import { ApiError, generateSegment, getCampaign } from '@/api/client'
 import type { Campaign } from '@/api/types'
 import AudienceCounts from '@/components/AudienceCounts.vue'
+import ContentSection from '@/components/ContentSection.vue'
 import ErrorAlert from '@/components/ErrorAlert.vue'
 import RuleTree from '@/components/RuleTree.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
@@ -15,6 +16,8 @@ const campaign = ref<Campaign | null>(null)
 const loadError = ref<unknown>(null)
 const segmentError = ref<unknown>(null)
 const generating = ref(false)
+// Content generation is streaming; the audience must not change meanwhile.
+const contentBusy = ref(false)
 
 let controller: AbortController | undefined
 
@@ -102,7 +105,7 @@ async function regenerate() {
           <button
             v-if="editable && campaign.segment_rule"
             type="button"
-            :disabled="generating"
+            :disabled="generating || contentBusy"
             class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
             @click="regenerate"
           >
@@ -138,6 +141,13 @@ async function regenerate() {
           <AudienceCounts v-if="campaign.audience" :audience="campaign.audience" :channels="campaign.channels" />
         </template>
       </section>
+
+      <ContentSection
+        v-if="campaign.segment_rule"
+        :campaign="campaign"
+        @update="campaign = $event"
+        @busy="contentBusy = $event"
+      />
     </template>
   </div>
 </template>

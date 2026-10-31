@@ -1,0 +1,203 @@
+<script setup lang="ts">
+import { computed, ref, watch } from 'vue'
+import { ApiError, editContent } from '@/api/client'
+import type { Campaign, Channel, Content } from '@/api/types'
+import { checkField, render, token, VARIABLES } from '@/lib/content'
+import { channelLabels } from '@/lib/format'
+import ErrorAlert from './ErrorAlert.vue'
+import LengthCounter from './LengthCounter.vue'
+
+const props = defineProps<{
+  campaignId: number
+  channel: Channel
+  saved: Content
+  variableLengths: Record<string, number>
+  limits: Record<string, number>
+  readonly: boolean
+}>()
+
+const emit = defineEmits<{
+  saved: [campaign: Campaign]
+  state: [channel: Channel, state: { dirty: boolean; valid: boolean }]
+}>()
+
+const sample = { first_name: 'Ayşe', city: 'İstanbul' }
+
+const subject = ref('')
+const body = ref('')
+const saving = ref(false)
+const saveError = ref<unknown>(null)
+
+// A new version from the server (generation, save) replaces the draft.
+watch(
+  () => [props.saved.version, props.saved.updated_at],
+  () => {
+    subject.value = props.saved.subject ?? ''
+    body.value = props.saved.body
+    saveError.value = null
+  },
+  { immediate: true },
+)
+
+const isEmail = computed(() => props.channel === 'email')
+const subjectCheck = computed(() =>
+  checkField(subject.value, props.limits['email.subject'] ?? 80, props.variableLengths, { singleLine: true }),
+)
+const bodyCheck = computed(() =>
+  checkField(body.value, props.limits[`${props.channel}.body`] ?? 160, props.variableLengths),
+)
+const dirty = computed(() => body.value !== props.saved.body || (isEmail.value && subject.value !== (props.saved.subject ?? '')))
+const valid = computed(() => bodyCheck.value.problems.length === 0 && (!isEmail.value || subjectCheck.value.problems.length === 0))
+
+watch([dirty, valid], () => emit('state', props.channel, { dirty: dirty.value, valid: valid.value }), { immediate: true })
+
+// Server problems arrive with paths like "email.subject"; show them under the field.
+const serverProblems = computed(() => (saveError.value instanceof ApiError ? saveError.value.problems : []))
+// Anything not tied to one of this editor's fields goes in the error box.
+const showSaveAlert = computed(() => {
+  const fields = [`${props.channel}.body`, `${props.channel}.subject`]
+  return !!saveError.value && (serverProblems.value.length === 0 || serverProblems.value.some((p) => !fields.includes(p.path)))
+})
+function problemsFor(field: 'subject' | 'body', local: string[]): string[] {
+  const path = `${props.channel}.${field}`
+  return [...local, ...serverProblems.value.filter((p) => p.path === path).map((p) => p.message)]
+}
+
+const bodyField = ref<HTMLTextAreaElement>()
+
+function insertVariable(name: string) {
+  const el = bodyField.value
+  const t = token(name)
+  if (!el) {
+    body.value += t
+    return
+  }
+  const { selectionStart: start, selectionEnd: end } = el
+  body.value = body.value.slice(0, start) + t + body.value.slice(end)
+  requestAnimationFrame(() => {
+    el.focus()
+    el.setSelectionRange(start + t.length, start + t.length)
+  })
+}
+
+function reset() {
+  subject.value = props.saved.subject ?? ''
+  body.value = props.saved.body
+  saveError.value = null
+}
+
+async function save() {
+  if (!dirty.value || !valid.value || saving.value) return
+  saving.value = true
+  saveError.value = null
+  try {
+    const edit = isEmail.value ? { subject: subject.value, body: body.value } : { body: body.value }
+    emit('saved', await editContent(props.campaignId, props.channel, edit))
+  } catch (e) {
+    saveError.value = e
+  } finally {
+    saving.value = false
+  }
+}
+
+const inputClass =
+  'w-full rounded-lg border px-3 py-2 focus:ring-2 focus:outline-none disabled:bg-slate-50 disabled:text-slate-700'
+function fieldClass(problems: string[]) {
+  return problems.length
+    ? `${inputClass} border-rose-400 focus:border-rose-500 focus:ring-rose-100`
+    : `${inputClass} border-slate-300 focus:border-indigo-500 focus:ring-indigo-200`
+}
+</script>
+
+<template>
+  <article class="space-y-4 rounded-xl border border-slate-200 bg-white p-5">
+    <header class="flex items-center justify-between gap-2">
+      <h3 class="font-semibold">{{ channelLabels[channel] }}</h3>
+      <span class="text-xs text-slate-500">
+        v{{ saved.version }}<template v-if="saved.human_edited"> · edited by you</template>
+        <template v-if="dirty"> · <span class="font-medium text-amber-600">unsaved changes</span></template>
+      </span>
+    </header>
+
+    <div v-if="isEmail">
+      <div class="flex items-baseline justify-between">
+        <label :for="`${channel}-subject`" class="text-sm font-medium">Subject</label>
+        <LengthCounter
+          :count="subjectCheck.worstCase"
+          :limit="subjectCheck.limit"
+          :variables="variableLengths"
+        />
+      </div>
+      <input
+        :id="`${channel}-subject`"
+        v-model="subject"
+        type="text"
+        :disabled="readonly || saving"
+        :class="fieldClass(problemsFor('subject', subjectCheck.problems))"
+        class="mt-1"
+      />
+      <ul class="mt-1 space-y-0.5 text-xs text-rose-600">
+        <li v-for="p in problemsFor('subject', subjectCheck.problems)" :key="p">Subject {{ p }}</li>
+      </ul>
+    </div>
+
+    <div>
+      <div class="flex items-baseline justify-between">
+        <label :for="`${channel}-body`" class="text-sm font-medium">{{ isEmail ? 'Body' : 'Message' }}</label>
+        <LengthCounter :count="bodyCheck.worstCase" :limit="bodyCheck.limit" :variables="variableLengths" />
+      </div>
+      <textarea
+        :id="`${channel}-body`"
+        ref="bodyField"
+        v-model="body"
+        :rows="isEmail ? 8 : 3"
+        :disabled="readonly || saving"
+        :class="fieldClass(problemsFor('body', bodyCheck.problems))"
+        class="mt-1"
+      />
+      <ul class="mt-1 space-y-0.5 text-xs text-rose-600">
+        <li v-for="p in problemsFor('body', bodyCheck.problems)" :key="p">{{ isEmail ? 'Body' : 'Message' }} {{ p }}</li>
+      </ul>
+      <div v-if="!readonly" class="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+        <span>Insert:</span>
+        <button
+          v-for="v in VARIABLES"
+          :key="v"
+          type="button"
+          :disabled="saving"
+          class="rounded border border-slate-300 px-1.5 py-0.5 font-mono hover:bg-slate-50"
+          @click="insertVariable(v)"
+        >
+          {{ token(v) }}
+        </button>
+      </div>
+    </div>
+
+    <div class="rounded-lg bg-slate-50 p-3 text-sm [overflow-wrap:anywhere]">
+      <p class="text-xs font-medium tracking-wide text-slate-500 uppercase">Preview for {{ sample.first_name }} in {{ sample.city }}</p>
+      <p v-if="isEmail" class="mt-1 font-medium">{{ render(subject.trim(), sample) }}</p>
+      <p class="mt-1 whitespace-pre-line text-slate-700">{{ render(body.trim(), sample) }}</p>
+    </div>
+
+    <ErrorAlert v-if="showSaveAlert" :error="saveError" title="Could not save" />
+
+    <footer v-if="!readonly && dirty" class="flex gap-2">
+      <button
+        type="button"
+        :disabled="!valid || saving"
+        class="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+        @click="save"
+      >
+        {{ saving ? 'Saving…' : 'Save changes' }}
+      </button>
+      <button
+        type="button"
+        :disabled="saving"
+        class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium hover:bg-slate-50"
+        @click="reset"
+      >
+        Discard
+      </button>
+    </footer>
+  </article>
+</template>

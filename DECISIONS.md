@@ -348,6 +348,21 @@ appended at the bottom of each section.
   refused when nobody can be reached.
 - **Regenerating the audience asks for confirmation when content exists,**
   because the backend discards content written for the previous audience.
+- **Content validation is mirrored in the browser** (`src/lib/content.ts`,
+  unit-tested against the same cases as the server): same variable rules,
+  same code-point counting, and the worst case uses the `variable_lengths` the
+  API returns, so the counter shows the number the server will check. The
+  server stays authoritative: edits and approval are validated again there,
+  and its problems are shown under the matching field. Unlike the server, the
+  browser keeps measuring after a broken variable, so the marketer sees every
+  problem at once.
+- **The raw model output is streamed as-is** while content is generated, and
+  replaced by the validated editors when the `done` event arrives. A new
+  attempt number clears the preview and says a repair round is running.
+  Partial-JSON parsing to show nicer partial messages was not worth it.
+- **Approval is blocked while an editor has unsaved or invalid changes,** so
+  what is approved is exactly what the server has stored and validated; the
+  confirm dialog shows how many messages per channel will be queued.
 - **Frontend checks are part of `make test`:** `vue-tsc` type checking and
   Vitest unit tests, with Node in Docker when it is not installed, like Go.
 

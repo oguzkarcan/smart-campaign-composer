@@ -144,7 +144,7 @@ backend/
   migrations/      SQL schema (golang-migrate)
 frontend/          Vue 3 + Vite + TypeScript + Tailwind app
   src/api/         typed API client, SSE reader
-  src/lib/         segment rule → readable text, formatting
+  src/lib/         segment rule → readable text, content validation mirror
   src/views/       pages (new campaign, campaign)
 ai-sessions/       Claude session exports
 ```
@@ -185,6 +185,9 @@ Done:
 - Brief form and campaign page: the segment rule shown as readable
   conditions (raw JSON on demand) with audience counts per campaign channel,
   retry and regenerate.
+- Content screen: generation streamed live over SSE (repair rounds shown),
+  editing with inline validation and worst-case length counters that mirror
+  the server, variable insert buttons, a sample preview, approval.
 
 Not done yet:
-- Frontend screens: content editing and approval, live dashboard.
+- Live delivery dashboard and campaign list.
