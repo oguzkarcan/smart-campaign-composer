@@ -125,6 +125,9 @@ export async function generateContent(id: number, handlers: ContentStreamHandler
 export interface ProgressHandlers {
   onProgress: (p: Progress) => void
   onError?: (err: Error) => void
+  // onConnection reports whether the stream is live or EventSource is
+  // reconnecting after a network drop.
+  onConnection?: (state: 'live' | 'reconnecting') => void
 }
 
 // watchProgress follows a campaign's live progress over SSE until it is done
@@ -133,6 +136,7 @@ export interface ProgressHandlers {
 // function that stops watching.
 export function watchProgress(id: number, handlers: ProgressHandlers): () => void {
   const source = new EventSource(`${BASE}/campaigns/${id}/events`)
+  source.addEventListener('open', () => handlers.onConnection?.('live'))
   source.addEventListener('progress', (e) => {
     const p = JSON.parse((e as MessageEvent<string>).data) as Progress
     handlers.onProgress(p)
@@ -147,6 +151,8 @@ export function watchProgress(id: number, handlers: ProgressHandlers): () => voi
     } else if (source.readyState === EventSource.CLOSED) {
       // A non-200 answer (e.g. 404): EventSource gives up without a reason.
       handlers.onError?.(new Error('live updates are unavailable'))
+    } else {
+      handlers.onConnection?.('reconnecting')
     }
   })
   return () => source.close()

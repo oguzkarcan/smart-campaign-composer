@@ -4,6 +4,7 @@ import NewCampaignForm from '@/components/NewCampaignForm.vue'
 
 <template>
   <section class="space-y-6">
+    <RouterLink to="/" class="text-sm text-indigo-600 hover:underline">← Campaigns</RouterLink>
     <div class="space-y-2">
       <h1 class="text-2xl font-semibold tracking-tight">New campaign</h1>
       <p class="text-slate-600">

@@ -102,7 +102,7 @@ segment DSL + validator + SQL compiler + consent.
 - [x] 2. Brief form → segment rule (readable) + audience counts per channel.
 - [x] 3. Content view: streamed generation over SSE, edit with inline
   validation (worst-case length counters), approve.
-- [ ] 4. Live dashboard over SSE: per-channel status counts, progress, failures;
+- [x] 4. Live dashboard over SSE: per-channel status counts, progress, failures;
   campaign list.
 - [ ] 5. Loading, error and empty states; polish.
 

@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { ApiError, generateSegment, getCampaign } from '@/api/client'
-import type { Campaign } from '@/api/types'
+import type { Campaign, CampaignStatus } from '@/api/types'
 import AudienceCounts from '@/components/AudienceCounts.vue'
 import ContentSection from '@/components/ContentSection.vue'
+import DeliveryDashboard from '@/components/DeliveryDashboard.vue'
 import ErrorAlert from '@/components/ErrorAlert.vue'
 import RuleTree from '@/components/RuleTree.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
@@ -39,6 +40,21 @@ onUnmounted(() => controller?.abort())
 
 const notFound = computed(() => loadError.value instanceof ApiError && loadError.value.status === 404)
 const rule = computed(() => (campaign.value?.segment_rule ? describeRule(campaign.value.segment_rule) : null))
+const delivering = computed(() => !!campaign.value && !editableStatuses.includes(campaign.value.status))
+
+// Approval happens at the bottom of the page; bring the new dashboard into view.
+watch(delivering, async (now, before) => {
+  if (now && before === false) {
+    await nextTick()
+    document.getElementById('delivery-heading')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+})
+
+// The live stream carries status changes (sending → completed).
+function onDeliveryStatus(status: CampaignStatus) {
+  if (campaign.value && campaign.value.status !== status) campaign.value = { ...campaign.value, status }
+}
+
 const editable = computed(() => !!campaign.value && editableStatuses.includes(campaign.value.status))
 const createdAt = computed(() =>
   campaign.value ? new Date(campaign.value.created_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '',
@@ -64,11 +80,11 @@ async function regenerate() {
 
 <template>
   <div class="space-y-8">
-    <RouterLink to="/" class="text-sm text-indigo-600 hover:underline">← New campaign</RouterLink>
+    <RouterLink to="/" class="text-sm text-indigo-600 hover:underline">← Campaigns</RouterLink>
 
     <div v-if="notFound" class="rounded-xl border border-slate-200 bg-white p-8 text-center">
       <p class="font-medium">Campaign #{{ id }} does not exist.</p>
-      <RouterLink to="/" class="mt-2 inline-block text-sm text-indigo-600 hover:underline">Create a campaign</RouterLink>
+      <RouterLink to="/" class="mt-2 inline-block text-sm text-indigo-600 hover:underline">Back to campaigns</RouterLink>
     </div>
 
     <ErrorAlert v-else-if="loadError" :error="loadError" title="Could not load the campaign">
@@ -98,6 +114,15 @@ async function regenerate() {
           </span>
         </div>
       </header>
+
+      <DeliveryDashboard
+        v-if="delivering"
+        :campaign-id="campaign.id"
+        :channels="campaign.channels"
+        :approved-at="campaign.approved_at"
+        :updated-at="campaign.updated_at"
+        @status="onDeliveryStatus"
+      />
 
       <section class="space-y-4" aria-labelledby="audience-heading">
         <div class="flex items-center justify-between gap-4">

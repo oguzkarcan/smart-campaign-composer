@@ -363,6 +363,19 @@ appended at the bottom of each section.
 - **Approval is blocked while an editor has unsaved or invalid changes,** so
   what is approved is exactly what the server has stored and validated; the
   confirm dialog shows how many messages per channel will be queued.
+- **The dashboard is driven by the API's progress stream only.** Counts,
+  status and completion all come from `GET /campaigns/{id}/events`; the page
+  computes nothing the server does not report except throughput, which is
+  the change in finished messages over a 5 s window of events. The stream is
+  closed on `done`; a network drop is shown as "Reconnecting…" while
+  `EventSource` retries, and a server error offers a manual reconnect.
+- **The campaign list polls instead of streaming.** It refreshes every 3 s
+  only while a listed campaign is approved or sending, reloading the rows
+  already shown in one request. One SSE stream per row would be heavier than
+  the list is worth; the detail page has the live stream.
+- **Routes:** `/` lists campaigns, `/new` is the brief form, and
+  `/campaigns/:id` holds the whole flow (audience, messages, delivery), with
+  the dashboard moved to the top once the campaign is approved.
 - **Frontend checks are part of `make test`:** `vue-tsc` type checking and
   Vitest unit tests, with Node in Docker when it is not installed, like Go.
 

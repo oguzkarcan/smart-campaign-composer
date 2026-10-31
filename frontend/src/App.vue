@@ -31,7 +31,15 @@ const stateDot: Record<ApiState, string> = { checking: 'bg-slate-300', ok: 'bg-e
   <div class="min-h-screen">
     <header class="border-b border-slate-200 bg-white">
       <div class="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
-        <RouterLink to="/" class="font-semibold tracking-tight">Smart Campaign Composer</RouterLink>
+        <nav class="flex items-center gap-6">
+          <RouterLink to="/" class="font-semibold tracking-tight">Smart Campaign Composer</RouterLink>
+          <RouterLink to="/" class="text-sm text-slate-600 hover:text-slate-900" exact-active-class="!text-indigo-600 font-medium">
+            Campaigns
+          </RouterLink>
+          <RouterLink to="/new" class="text-sm text-slate-600 hover:text-slate-900" active-class="!text-indigo-600 font-medium">
+            New campaign
+          </RouterLink>
+        </nav>
         <span class="flex items-center gap-2 text-sm text-slate-500" role="status">
           <span class="size-2 rounded-full" :class="stateDot[apiState]" />
           {{ stateLabel[apiState] }}
