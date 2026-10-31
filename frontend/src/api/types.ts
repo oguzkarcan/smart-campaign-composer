@@ -140,11 +140,16 @@ export interface Person {
   email_consent: boolean
 }
 
+export type PeopleSort = 'id' | 'first_name' | 'city' | 'language'
+export type SortOrder = 'asc' | 'desc'
+
 export interface People {
   recipients: Person[]
   total: number
   limit: number
   offset: number
+  sort: PeopleSort
+  order: SortOrder
 }
 
 export interface Problem {

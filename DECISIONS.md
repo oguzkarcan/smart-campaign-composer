@@ -273,9 +273,14 @@ listed in the [README](README.md#unfinished-scope-and-known-gaps).
   Showing users without consent as "skipped" on a channel explains the gap
   between matching users and recipients. It runs the same compiled,
   parameterized rule as counting and enqueueing, live at read time like the
-  rest of the page, ordered by id. Offset paging (as asked for a table with
-  "Load more") is fine for a few hundred matches; a large audience would
-  page by id like `GET /campaigns`.
+  rest of the page. It pages with previous / next buttons (offset paging,
+  fine for a few hundred matches; a very large audience would want keyset
+  paging like `GET /campaigns`) and sorts in the database, so the order
+  holds across pages: `sort` is a whitelisted key mapped to SQL in the
+  store (never interpolated from the request), `order` is asc/desc, and
+  ties are broken by id so pages never overlap or skip anyone. Names and
+  cities sort with Postgres' ICU Turkish collation (`tr-TR-x-icu`): the
+  database's default `en_US` order puts Ç, İ, Ö, Ş and Ü after Z.
 - **The service depends on a small `Store` interface.** Flow rules are
   unit-tested with an in-memory store (`make test`, no database); the Postgres
   store is covered by integration tests against the seeded database.

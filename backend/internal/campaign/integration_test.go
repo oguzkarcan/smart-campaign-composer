@@ -19,6 +19,7 @@ import (
 
 	"github.com/oguzkarcan/smart-campaign-composer/backend/internal/content"
 	"github.com/oguzkarcan/smart-campaign-composer/backend/internal/llm"
+	"github.com/oguzkarcan/smart-campaign-composer/backend/internal/segment"
 )
 
 const exampleBrief = "Son 30 günde sepete ürün ekleyip satın almayan İstanbul'daki kullanıcılara %30 indirim hatırlatması gönder"
@@ -496,7 +497,7 @@ func TestIntegrationRecipients(t *testing.T) {
 
 	var all []Person
 	for offset := 0; ; offset += 40 {
-		p, err := svc.Recipients(ctx, c.ID, 40, offset)
+		p, err := svc.Recipients(ctx, c.ID, PeopleQuery{Limit: 40, Offset: offset})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -525,5 +526,59 @@ func TestIntegrationRecipients(t *testing.T) {
 	}
 	if len(all) != c.Audience.Matched || sms != c.Audience.SMS || email != c.Audience.Email {
 		t.Fatalf("listed %d (sms %d, email %d), audience %+v", len(all), sms, email, c.Audience)
+	}
+}
+
+// Sorting covers every page, with Turkish alphabetical order (Ç after C, not
+// after Z) and ties broken by id, matching a hand-written reference query.
+func TestIntegrationRecipientsSorted(t *testing.T) {
+	ctx := context.Background()
+	db := testDB(t)
+	svc := NewService(NewPGStore(db), &llm.Mock{})
+	c := createForTest(t, svc, db, []string{"sms", "email"})
+	c, err := svc.GenerateSegment(ctx, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct{ sort, order, ref string }{
+		{"first_name", "asc", `u.first_name COLLATE "tr-TR-x-icu" ASC, u.id`},
+		{"first_name", "desc", `u.first_name COLLATE "tr-TR-x-icu" DESC, u.id`},
+		{"city", "desc", `u.city COLLATE "tr-TR-x-icu" DESC, u.id`},
+		{"language", "asc", `u.language ASC, u.id`},
+	} {
+		var got []int64
+		for offset := 0; ; offset += 50 {
+			p, err := svc.Recipients(ctx, c.ID, PeopleQuery{Limit: 50, Offset: offset, Sort: tt.sort, Order: tt.order})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(p.Recipients) == 0 {
+				break
+			}
+			for _, r := range p.Recipients {
+				got = append(got, r.ID)
+			}
+		}
+		where, args, err := segment.Where(*c.Rule, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		var want []int64
+		if err := db.QueryRow(ctx, "SELECT array_agg(u.id ORDER BY "+tt.ref+") FROM users u WHERE "+where, args...).Scan(&want); err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("%s %s: order differs from the reference (%d vs %d ids)", tt.sort, tt.order, len(got), len(want))
+		}
+	}
+
+	// The collation puts Turkish letters in their place.
+	var cagri, ceren, zeynep int
+	err = db.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM (VALUES ('Ceren'), ('Zeynep')) v(n) WHERE n COLLATE "tr-TR-x-icu" < 'Çağrı'),
+		(SELECT count(*) FROM (VALUES ('Çağrı'), ('Zeynep')) v(n) WHERE n COLLATE "tr-TR-x-icu" < 'Ceren'),
+		(SELECT count(*) FROM (VALUES ('Çağrı'), ('Ceren')) v(n) WHERE n COLLATE "tr-TR-x-icu" < 'Zeynep')`).Scan(&cagri, &ceren, &zeynep)
+	if err != nil || cagri != 1 || ceren != 0 || zeynep != 2 {
+		t.Fatalf("Turkish collation: Çağrı after %d, Ceren after %d, Zeynep after %d (err %v)", cagri, ceren, zeynep, err)
 	}
 }

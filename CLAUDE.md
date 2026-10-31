@@ -138,8 +138,8 @@ segment DSL + validator + SQL compiler + consent.
   once steps 5 and 6 are done).
 - [x] 5. Matching people (read-only): `GET /campaigns/{id}/recipients`
   (`limit`/`offset`, users the segment rule matches with per-channel consent),
-  a "Matching people" table in the Audience section with consent badges and
-  "Load more", and "Preview as this person" filling the SMS / email previews
+  a "Matching people" table in the Audience section with consent badges,
+  previous / next pages and sortable Name / City / Language columns, and "Preview as this person" filling the SMS / email previews
   with that user's name, city, phone, email and language (with a reset pill).
 - [x] 6. Light / dark theme toggle next to `TR | EN` (`localStorage`, default
   `prefers-color-scheme`, translated), clean contrast in every view, checked

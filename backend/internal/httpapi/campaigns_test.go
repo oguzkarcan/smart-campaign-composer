@@ -386,11 +386,18 @@ func TestRecipients(t *testing.T) {
 		"/campaigns/1/recipients?offset=-1":  http.StatusBadRequest,
 		"/campaigns/1/recipients?offset=one": http.StatusBadRequest,
 		"/campaigns/9/recipients":            http.StatusNotFound,
+		"/campaigns/1/recipients?sort=email": http.StatusBadRequest,
+		"/campaigns/1/recipients?order=up":   http.StatusBadRequest,
 	} {
 		if w := do(t, h, "GET", path, ""); w.Code != status || decodeBody[errorResponse](t, w).Error == "" {
 			t.Errorf("GET %s: %d %s, want %d", path, w.Code, w.Body, status)
 		}
 	}
+	w = do(t, h, "GET", "/campaigns/1/recipients?sort=first_name&order=desc", "")
+	if p := decodeBody[campaign.People](t, w); w.Code != http.StatusOK || p.Recipients[0].FirstName != "Mehmet" || p.Order != "desc" {
+		t.Fatalf("sorted: %d %s", w.Code, w.Body)
+	}
+
 	// The list is read-only.
 	if w := do(t, h, "POST", "/campaigns/1/recipients", `{"id": 4}`); w.Code != http.StatusMethodNotAllowed {
 		t.Errorf("POST recipients: %d", w.Code)

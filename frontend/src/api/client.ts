@@ -6,9 +6,11 @@ import type {
   ContentEdit,
   Language,
   People,
+  PeopleSort,
   ErrorBody,
   Problem,
   Progress,
+  SortOrder,
 } from './types'
 
 // All requests go to same-origin /api, proxied to the API by Vite or nginx.
@@ -122,15 +124,18 @@ export function approveCampaign(id: number, sendAt?: string): Promise<Campaign> 
   return request('POST', `/campaigns/${id}/approve`, { body: sendAt ? { send_at: sendAt } : undefined })
 }
 
-// getRecipients pages through the users the campaign's rule matches now.
+// getRecipients pages through the users the campaign's rule matches now,
+// sorted by a column (names and cities alphabetically, Turkish order).
 export function getRecipients(
   id: number,
-  page: { limit?: number; offset?: number } = {},
+  page: { limit?: number; offset?: number; sort?: PeopleSort; order?: SortOrder } = {},
   signal?: AbortSignal,
 ): Promise<People> {
   const q = new URLSearchParams()
   if (page.limit) q.set('limit', String(page.limit))
   if (page.offset) q.set('offset', String(page.offset))
+  if (page.sort && page.sort !== 'id') q.set('sort', page.sort)
+  if (page.sort && page.sort !== 'id' && page.order) q.set('order', page.order)
   const qs = q.toString()
   return request('GET', `/campaigns/${id}/recipients${qs ? `?${qs}` : ''}`, { signal })
 }

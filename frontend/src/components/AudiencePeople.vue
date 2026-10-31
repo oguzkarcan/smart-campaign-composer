@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { getRecipients } from '@/api/client'
-import type { Channel, Person } from '@/api/types'
+import type { Channel, PeopleSort, Person, SortOrder } from '@/api/types'
 import { channelLabel, formatNumber } from '@/lib/format'
 import { t } from '@/lib/i18n'
 import ErrorAlert from './ErrorAlert.vue'
@@ -24,19 +24,33 @@ const PAGE = 15
 const open = ref(false)
 const people = ref<Person[]>([])
 const total = ref(0)
+const page = ref(0) // 0-based
+const sort = ref<PeopleSort>('id')
+const order = ref<SortOrder>('asc')
+const loaded = ref(false)
 const loading = ref(false)
 const error = ref<unknown>(null)
 let controller: AbortController | undefined
 
-async function load(more: boolean) {
+const pages = computed(() => Math.max(1, Math.ceil(total.value / PAGE)))
+const from = computed(() => (total.value ? page.value * PAGE + 1 : 0))
+const to = computed(() => page.value * PAGE + people.value.length)
+
+// The server sorts and pages, so the order holds across all pages.
+async function load() {
   controller?.abort()
   controller = new AbortController()
   loading.value = true
   error.value = null
   try {
-    const page = await getRecipients(props.campaignId, { limit: PAGE, offset: more ? people.value.length : 0 }, controller.signal)
-    people.value = more ? [...people.value, ...page.recipients] : page.recipients
-    total.value = page.total
+    const p = await getRecipients(
+      props.campaignId,
+      { limit: PAGE, offset: page.value * PAGE, sort: sort.value, order: order.value },
+      controller.signal,
+    )
+    people.value = p.recipients
+    total.value = p.total
+    loaded.value = true
   } catch (e) {
     if (!controller.signal.aborted) error.value = e
   } finally {
@@ -44,9 +58,32 @@ async function load(more: boolean) {
   }
 }
 
+function go(to: number) {
+  if (to < 0 || to >= pages.value || to === page.value) return
+  page.value = to
+  load()
+}
+
+// Clicking a column sorts by it A→Z; clicking it again reverses. Sorting
+// starts again from the first page.
+function sortBy(column: PeopleSort) {
+  if (sort.value === column) order.value = order.value === 'asc' ? 'desc' : 'asc'
+  else {
+    sort.value = column
+    order.value = 'asc'
+  }
+  page.value = 0
+  load()
+}
+
+function ariaSort(column: PeopleSort) {
+  if (sort.value !== column) return 'none'
+  return order.value === 'asc' ? 'ascending' : 'descending'
+}
+
 function toggle() {
   open.value = !open.value
-  if (open.value && !people.value.length) load(false)
+  if (open.value && !loaded.value) load()
 }
 
 // A new rule means different people; start over.
@@ -55,12 +92,18 @@ watch(
   () => {
     people.value = []
     total.value = 0
-    if (open.value) load(false)
+    page.value = 0
+    loaded.value = false
+    if (open.value) load()
   },
 )
 onUnmounted(() => controller?.abort())
 
-const hasMore = computed(() => people.value.length < total.value)
+const columns = computed(() => [
+  { key: 'first_name' as const, label: t('people.name') },
+  { key: 'city' as const, label: t('people.city') },
+  { key: 'language' as const, label: t('audience.language') },
+])
 
 function consent(p: Person, ch: Channel): boolean {
   return ch === 'sms' ? p.sms_consent : p.email_consent
@@ -87,21 +130,32 @@ function choose(p: Person) {
       <p class="text-xs text-slate-500">{{ t('people.readOnly') }}</p>
 
       <ErrorAlert v-if="error" :error="error" :title="t('people.loadError')">
-        <button type="button" class="font-medium underline" @click="load(people.length > 0)">
+        <button type="button" class="font-medium underline" @click="load()">
           {{ t('common.retry') }}
         </button>
       </ErrorAlert>
 
-      <div v-if="loading && !people.length" class="h-24 animate-pulse rounded bg-slate-100" aria-busy="true" />
-      <p v-else-if="!error && !people.length" class="text-sm text-slate-500">{{ t('people.empty') }}</p>
+      <div v-if="loading && !loaded" class="h-24 animate-pulse rounded bg-slate-100" aria-busy="true" />
+      <p v-else-if="!error && loaded && !total" class="text-sm text-slate-500">{{ t('people.empty') }}</p>
 
-      <div v-if="people.length" class="overflow-x-auto">
+      <div v-if="people.length" class="overflow-x-auto" :class="{ 'opacity-60': loading }" :aria-busy="loading">
         <table class="w-full text-sm">
           <thead class="text-left text-xs text-slate-500">
             <tr>
-              <th class="py-2 pr-3 font-medium">{{ t('people.name') }}</th>
-              <th class="py-2 pr-3 font-medium">{{ t('people.city') }}</th>
-              <th class="py-2 pr-3 font-medium">{{ t('audience.language') }}</th>
+              <th v-for="col in columns" :key="col.key" class="py-2 pr-3 font-medium" :aria-sort="ariaSort(col.key)">
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1 hover:text-slate-900"
+                  :class="{ 'text-slate-900': sort === col.key }"
+                  :title="t('people.sortBy', { column: col.label })"
+                  @click="sortBy(col.key)"
+                >
+                  {{ col.label }}
+                  <span aria-hidden="true" class="text-[10px]" :class="sort === col.key ? 'text-indigo-600' : 'text-slate-300'">
+                    {{ sort === col.key && order === 'desc' ? '▼' : '▲' }}
+                  </span>
+                </button>
+              </th>
               <th v-for="ch in channels" :key="ch" class="py-2 pr-3 font-medium">{{ channelLabel(ch) }}</th>
               <th class="py-2 font-medium"><span class="sr-only">{{ t('people.preview') }}</span></th>
             </tr>
@@ -153,20 +207,30 @@ function choose(p: Person) {
         </table>
       </div>
 
-      <div v-if="people.length" class="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+      <nav v-if="people.length" class="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
         <span class="tabular-nums">
-          {{ t('people.showing', { shown: formatNumber(people.length), total: formatNumber(total) }) }}
+          {{ t('people.range', { from: formatNumber(from), to: formatNumber(to), total: formatNumber(total) }) }}
         </span>
-        <button
-          v-if="hasMore"
-          type="button"
-          :disabled="loading"
-          class="rounded-lg border border-slate-300 bg-white px-3 py-1 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-          @click="load(true)"
-        >
-          {{ loading ? t('common.loading') : t('common.loadMore') }}
-        </button>
-      </div>
+        <div class="flex items-center gap-2">
+          <button
+            type="button"
+            :disabled="loading || page === 0"
+            class="rounded-lg border border-slate-300 bg-white px-3 py-1 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            @click="go(page - 1)"
+          >
+            ‹ {{ t('people.prev') }}
+          </button>
+          <span class="tabular-nums" aria-live="polite">{{ t('people.page', { page: page + 1, pages }) }}</span>
+          <button
+            type="button"
+            :disabled="loading || page >= pages - 1"
+            class="rounded-lg border border-slate-300 bg-white px-3 py-1 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            @click="go(page + 1)"
+          >
+            {{ t('people.next') }} ›
+          </button>
+        </div>
+      </nav>
     </div>
   </div>
 </template>

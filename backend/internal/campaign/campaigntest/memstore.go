@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -244,13 +245,32 @@ func (s *MemStore) SetMessages(id int64, channel string, counts campaign.Counts,
 }
 
 // People are the users Matching pages through; NewMemStore fills in a few.
-func (s *MemStore) Matching(_ context.Context, _ segment.Rule, limit, offset int, _ time.Time) ([]campaign.Person, int, error) {
+func (s *MemStore) Matching(_ context.Context, _ segment.Rule, q campaign.PeopleQuery, _ time.Time) ([]campaign.Person, int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if offset >= len(s.People) {
-		return nil, len(s.People), nil
+	people := slices.Clone(s.People)
+	key := func(p campaign.Person) string {
+		switch q.Sort {
+		case "first_name":
+			return p.FirstName
+		case "city":
+			return p.City
+		case "language":
+			return p.Language
+		}
+		return fmt.Sprintf("%020d", p.ID)
 	}
-	return slices.Clone(s.People[offset:min(offset+limit, len(s.People))]), len(s.People), nil
+	slices.SortStableFunc(people, func(a, b campaign.Person) int {
+		c := strings.Compare(key(a), key(b))
+		if q.Order == "desc" {
+			c = -c
+		}
+		return c
+	})
+	if q.Offset >= len(people) {
+		return nil, len(people), nil
+	}
+	return people[q.Offset:min(q.Offset+q.Limit, len(people))], len(people), nil
 }
 
 func (s *MemStore) Catalog(context.Context) (segment.Catalog, error) { return Catalog, nil }

@@ -557,29 +557,55 @@ func TestRecipients(t *testing.T) {
 	svc, _ := newTestService(&llm.Mock{})
 	ctx := context.Background()
 	c, _ := svc.Create(ctx, exampleBrief, []string{"sms", "email"})
-	if _, err := svc.Recipients(ctx, c.ID, 0, 0); !errors.Is(err, campaign.ErrConflict) {
+	if _, err := svc.Recipients(ctx, c.ID, campaign.PeopleQuery{}); !errors.Is(err, campaign.ErrConflict) {
 		t.Fatalf("without a segment: err = %v", err)
 	}
 	if _, err := svc.GenerateSegment(ctx, c.ID); err != nil {
 		t.Fatal(err)
 	}
 
-	p, err := svc.Recipients(ctx, c.ID, 2, 0)
+	p, err := svc.Recipients(ctx, c.ID, campaign.PeopleQuery{Limit: 2})
 	if err != nil || p.Total != 3 || len(p.Recipients) != 2 || p.Limit != 2 || p.Recipients[1].SMSConsent {
 		t.Fatalf("first page %+v, err %v", p, err)
 	}
-	if p, _ = svc.Recipients(ctx, c.ID, 2, 2); len(p.Recipients) != 1 || p.Recipients[0].Language != "en" {
+	if p, _ = svc.Recipients(ctx, c.ID, campaign.PeopleQuery{Limit: 2, Offset: 2}); len(p.Recipients) != 1 || p.Recipients[0].Language != "en" {
 		t.Fatalf("second page %+v", p)
 	}
-	if p, _ = svc.Recipients(ctx, c.ID, 0, 10); p.Recipients == nil || len(p.Recipients) != 0 || p.Limit != campaign.DefaultPeopleLimit {
+	if p, _ = svc.Recipients(ctx, c.ID, campaign.PeopleQuery{Offset: 10}); p.Recipients == nil || len(p.Recipients) != 0 || p.Limit != campaign.DefaultPeopleLimit {
 		t.Fatalf("past the end %+v", p)
 	}
 	for _, tt := range [][2]int{{-1, 0}, {campaign.MaxPeopleLimit + 1, 0}, {10, -1}} {
-		if _, err := svc.Recipients(ctx, c.ID, tt[0], tt[1]); !errors.Is(err, campaign.ErrInvalid) {
+		if _, err := svc.Recipients(ctx, c.ID, campaign.PeopleQuery{Limit: tt[0], Offset: tt[1]}); !errors.Is(err, campaign.ErrInvalid) {
 			t.Errorf("limit %d offset %d: err = %v", tt[0], tt[1], err)
 		}
 	}
-	if _, err := svc.Recipients(ctx, 404, 0, 0); !errors.Is(err, campaign.ErrNotFound) {
+	if _, err := svc.Recipients(ctx, 404, campaign.PeopleQuery{}); !errors.Is(err, campaign.ErrNotFound) {
 		t.Errorf("unknown campaign: err = %v", err)
+	}
+	// Sorting by a whitelisted column, either way; anything else is refused.
+	names := func(q campaign.PeopleQuery) []string {
+		p, err := svc.Recipients(ctx, c.ID, q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, r := range p.Recipients {
+			out = append(out, r.FirstName)
+		}
+		return out
+	}
+	if got := names(campaign.PeopleQuery{Sort: "first_name"}); !slices.Equal(got, []string{"Ayşe", "Emily", "Mehmet"}) {
+		t.Errorf("by name: %v", got)
+	}
+	if got := names(campaign.PeopleQuery{Sort: "city", Order: "desc"}); !slices.Equal(got, []string{"Emily", "Ayşe", "Mehmet"}) {
+		t.Errorf("by city, descending: %v", got) // İzmir, İstanbul, Ankara (byte order in the memory store)
+	}
+	if p, _ := svc.Recipients(ctx, c.ID, campaign.PeopleQuery{}); p.Sort != "id" || p.Order != "asc" {
+		t.Errorf("defaults: sort %q order %q", p.Sort, p.Order)
+	}
+	for _, q := range []campaign.PeopleQuery{{Sort: "phone"}, {Sort: "u.id; DROP TABLE users"}, {Order: "up"}} {
+		if _, err := svc.Recipients(ctx, c.ID, q); !errors.Is(err, campaign.ErrInvalid) {
+			t.Errorf("%+v: err = %v", q, err)
+		}
 	}
 }

@@ -424,7 +424,25 @@ func (s *PGStore) Count(ctx context.Context, r segment.Rule, now time.Time) (seg
 	return segment.Count(ctx, s.db, r, now)
 }
 
-func (s *PGStore) Matching(ctx context.Context, r segment.Rule, limit, offset int, now time.Time) ([]Person, int, error) {
+// peopleOrder maps the allowed sort keys to SQL; names and cities sort with
+// the Turkish ICU collation, so Ç, İ, Ö, Ş and Ü come after C, I, O, S and U
+// instead of after Z. Only these strings ever reach the ORDER BY.
+var peopleOrder = map[string]string{
+	"id":         "u.id",
+	"first_name": `u.first_name COLLATE "tr-TR-x-icu"`,
+	"city":       `u.city COLLATE "tr-TR-x-icu"`,
+	"language":   "u.language",
+}
+
+func (s *PGStore) Matching(ctx context.Context, r segment.Rule, q PeopleQuery, now time.Time) ([]Person, int, error) {
+	column, ok := peopleOrder[q.Sort]
+	if !ok {
+		return nil, 0, fmt.Errorf("%w: unknown sort %q", ErrInvalid, q.Sort)
+	}
+	direction := "ASC"
+	if q.Order == "desc" {
+		direction = "DESC"
+	}
 	where, args, err := segment.Where(r, now)
 	if err != nil {
 		return nil, 0, err
@@ -437,7 +455,7 @@ func (s *PGStore) Matching(ctx context.Context, r segment.Rule, limit, offset in
 	rows, err := s.db.Query(ctx, fmt.Sprintf(`
 		SELECT u.id, u.first_name, u.city, u.language, u.phone, u.email, u.sms_opt_in, u.email_opt_in
 		FROM users u WHERE %s
-		ORDER BY u.id LIMIT $%d OFFSET $%d`, where, n+1, n+2), append(args, limit, offset)...)
+		ORDER BY %s %s, u.id LIMIT $%d OFFSET $%d`, where, column, direction, n+1, n+2), append(args, q.Limit, q.Offset)...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list matching users: %w", err)
 	}

@@ -163,9 +163,10 @@ func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, c)
 }
 
-// handleRecipients serves GET /campaigns/{id}/recipients?limit=15&offset=0:
-// the users the campaign's rule matches now, with their consent per channel.
-// Read-only; membership comes only from the segment rule.
+// handleRecipients serves GET /campaigns/{id}/recipients?limit=15&offset=0
+// &sort=city&order=desc: the users the campaign's rule matches now, with
+// their consent per channel. Read-only; membership comes only from the
+// segment rule.
 func (s *Server) handleRecipients(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(w, r)
 	if !ok {
@@ -185,7 +186,8 @@ func (s *Server) handleRecipients(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	people, err := s.campaigns.Recipients(r.Context(), id, limit, offset)
+	q := campaign.PeopleQuery{Limit: limit, Offset: offset, Sort: r.URL.Query().Get("sort"), Order: r.URL.Query().Get("order")}
+	people, err := s.campaigns.Recipients(r.Context(), id, q)
 	if err != nil {
 		writeError(w, err)
 		return

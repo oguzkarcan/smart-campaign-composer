@@ -106,6 +106,11 @@ describe('recipients', () => {
     })
     await getRecipients(7)
     await getRecipients(7, { limit: 15, offset: 30 })
-    expect(urls).toEqual(['/api/campaigns/7/recipients', '/api/campaigns/7/recipients?limit=15&offset=30'])
+    await getRecipients(7, { limit: 15, sort: 'city', order: 'desc' })
+    expect(urls).toEqual([
+      '/api/campaigns/7/recipients',
+      '/api/campaigns/7/recipients?limit=15&offset=30',
+      '/api/campaigns/7/recipients?limit=15&sort=city&order=desc',
+    ])
   })
 })
