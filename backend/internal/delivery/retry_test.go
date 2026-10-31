@@ -2,6 +2,7 @@ package delivery
 
 import (
 	"errors"
+	"math/rand/v2"
 	"testing"
 	"time"
 )
@@ -50,6 +51,27 @@ func TestDecide(t *testing.T) {
 	for _, tt := range tests {
 		if got := decide(tt.res, tt.attempt, fixed(0)); got != tt.want {
 			t.Errorf("%s: %+v, want %+v", tt.name, got, tt.want)
+		}
+	}
+}
+
+// With real random draws every wait stays within [half, full) of the
+// exponential delay, so waits never shrink as attempts go up.
+func TestBackoffJitterBounds(t *testing.T) {
+	rnd := rand.New(rand.NewPCG(1, 2))
+	for attempt := 1; attempt <= 10; attempt++ {
+		full := min(BaseDelay<<(attempt-1), MaxDelay)
+		lo, hi := full, time.Duration(0)
+		for range 1000 {
+			d := Backoff(attempt, rnd.Float64)
+			if d < full/2 || d >= full {
+				t.Fatalf("attempt %d: %v outside [%v, %v)", attempt, d, full/2, full)
+			}
+			lo, hi = min(lo, d), max(hi, d)
+		}
+		// The draws actually spread over the range (jitter is not constant).
+		if hi-lo < full/4 {
+			t.Errorf("attempt %d: draws only span %v-%v", attempt, lo, hi)
 		}
 	}
 }

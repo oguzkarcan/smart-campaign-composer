@@ -321,6 +321,26 @@ appended at the bottom of each section.
 - **`message_attempts`** records every provider call (status code, error,
   latency) for metrics and debugging.
 
+## Testing
+
+- **The end-to-end test checks invariants, not a lucky run.** Failure
+  injection is random and the worker is concurrent, so the test does not
+  expect a fixed number of retries. It asserts what must always hold: every
+  message ends sent or failed, failures other than the rejected recipient used
+  all 5 attempts on retryable errors, the provider's duplicate counter is 0,
+  `message_attempts` has exactly one row per provider call, the gap after a
+  429 is at least `Retry-After`, and the provider's own limiter never fired.
+- **The rate limit is checked from the provider's side:** the mock provider
+  enforces 100/s per channel, so `rate_limited = 0` proves the worker stays
+  under it. Per-second counts from `message_attempts` are checked too, with
+  room for the provider's latency, because rows are stamped when a call
+  finishes, not when it starts.
+- **A permanent failure is injected by wrapping the provider,** not by
+  corrupting seed data: one recipient's number is rejected with a 400.
+- **Concurrent approvals are tested with real transactions:** five approvals
+  race on one campaign; one wins and every recipient is queued once per
+  channel.
+
 ## Mock provider
 
 - **Behaves like a real provider, with tunable failure rates** (`MOCK_*`

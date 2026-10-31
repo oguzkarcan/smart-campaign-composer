@@ -36,10 +36,10 @@ func testDB(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
-// approvedCampaign creates and approves an SMS campaign with the mock LLM,
+// approvedCampaign creates and approves a campaign with the mock LLM,
 // deleting it (and its messages) afterwards. Claims take due messages of any
 // campaign, so the test is skipped if others are waiting.
-func approvedCampaign(t *testing.T, db *pgxpool.Pool) (campaign.Campaign, int) {
+func approvedCampaign(t *testing.T, db *pgxpool.Pool, channels ...string) (campaign.Campaign, int) {
 	t.Helper()
 	ctx := context.Background()
 	var others int
@@ -51,7 +51,10 @@ func approvedCampaign(t *testing.T, db *pgxpool.Pool) (campaign.Campaign, int) {
 	}
 
 	svc := campaign.NewService(campaign.NewPGStore(db), &llm.Mock{})
-	c, err := svc.Create(ctx, exampleBrief, []string{"sms"})
+	if len(channels) == 0 {
+		channels = []string{"sms"}
+	}
+	c, err := svc.Create(ctx, exampleBrief, channels)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +108,7 @@ func message(t *testing.T, db *pgxpool.Pool, id int64) messageRow {
 func TestIntegrationQueue(t *testing.T) {
 	ctx := context.Background()
 	db := testDB(t)
-	c, total := approvedCampaign(t, db)
+	c, total := approvedCampaign(t, db, "sms")
 	q := NewPGQueue(db)
 
 	// Concurrent claims never return the same message.
@@ -227,7 +230,7 @@ func TestIntegrationQueue(t *testing.T) {
 func TestIntegrationCampaignWithNothingSentFails(t *testing.T) {
 	ctx := context.Background()
 	db := testDB(t)
-	c, _ := approvedCampaign(t, db)
+	c, _ := approvedCampaign(t, db, "sms")
 	if _, err := db.Exec(ctx, "UPDATE messages SET status = 'failed' WHERE campaign_id = $1", c.ID); err != nil {
 		t.Fatal(err)
 	}

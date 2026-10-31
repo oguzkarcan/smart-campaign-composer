@@ -327,3 +327,49 @@ func TestIntegrationProgressAndList(t *testing.T) {
 		t.Fatalf("unknown campaign: %v", err)
 	}
 }
+
+// Two approvals racing: the campaign row lock lets exactly one through, and
+// every recipient is queued once per channel.
+func TestIntegrationConcurrentApprovals(t *testing.T) {
+	ctx := context.Background()
+	db := testDB(t)
+	svc := NewService(NewPGStore(db), &llm.Mock{})
+	c := createForTest(t, svc, db, []string{"sms", "email"})
+	if _, err := svc.GenerateSegment(ctx, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.GenerateContent(ctx, c.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	const n = 5
+	errs := make(chan error, n)
+	start := make(chan struct{})
+	for range n {
+		go func() {
+			<-start
+			_, err := svc.Approve(ctx, c.ID)
+			errs <- err
+		}()
+	}
+	close(start)
+	ok := 0
+	for range n {
+		switch err := <-errs; {
+		case err == nil:
+			ok++
+		case !errors.Is(err, ErrConflict):
+			t.Errorf("unexpected error: %v", err)
+		}
+	}
+	if ok != 1 {
+		t.Fatalf("%d approvals succeeded, want 1", ok)
+	}
+
+	c, _ = svc.Get(ctx, c.ID)
+	var total, distinct int
+	err := db.QueryRow(ctx, `SELECT count(*), count(DISTINCT (user_id, channel)) FROM messages WHERE campaign_id = $1`, c.ID).Scan(&total, &distinct)
+	if err != nil || total != distinct || total != c.Audience.SMS+c.Audience.Email {
+		t.Fatalf("messages %d, distinct %d, want %d (err %v)", total, distinct, c.Audience.SMS+c.Audience.Email, err)
+	}
+}

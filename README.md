@@ -31,13 +31,31 @@ To use Claude, set `LLM_MODE=claude` and `ANTHROPIC_API_KEY` in `.env`.
 
 ```sh
 make test    # backend tests (mock LLM, no API key, no running stack needed)
-make test-integration  # also runs DB tests against the seeded compose Postgres
+make test-integration  # DB tests and the end-to-end delivery test against the
+                       # seeded compose Postgres (needs `make up`; pauses the
+                       # compose worker while it runs)
 make vet     # go vet
 make fmt     # go fmt
 make up      # docker compose up --build
 make down    # stop and remove volumes (fresh database next time)
 make help    # list all targets
 ```
+
+### What the tests prove
+
+- **Unit (`make test`):** segment DSL validation and SQL compilation
+  (injection-like input is rejected or parameterized), consent, content limits
+  on the worst case after expansion, the LLM repair loop, the HTTP API, the
+  provider client's response classes, backoff and retry decisions, the
+  worker's rate limiter, retries and graceful shutdown.
+- **End to end (`make test-integration`):** the real worker, Postgres queue
+  and HTTP client against the mock provider with its 100/s limit and injected
+  429s, 5xx and lost responses, plus one recipient rejected with a 400. It
+  checks that every message ends sent or failed, the duplicate-delivery
+  counter stays 0, every provider call is recorded, a permanent error fails at
+  once, retries stop at 5 attempts, `Retry-After` is waited out, and the
+  provider's own rate limit is never hit. Concurrent approvals queue each
+  recipient once.
 
 ## Architecture
 

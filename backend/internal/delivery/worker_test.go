@@ -16,6 +16,7 @@ type memQueue struct {
 	attempts map[int64]int
 	status   map[int64]string
 	finished []Job
+	decided  []Decision
 	released []Job
 	claimed  int
 }
@@ -52,6 +53,7 @@ func (q *memQueue) Finish(_ context.Context, j Job, _ Result, d Decision) (bool,
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.finished = append(q.finished, j)
+	q.decided = append(q.decided, d)
 	q.status[j.MessageID] = d.Status
 	if d.Status == StatusRetry {
 		q.due = append(q.due, j)
@@ -212,5 +214,25 @@ func TestWorkerGracefulShutdown(t *testing.T) {
 		if q.attempts[j.MessageID] != 0 {
 			t.Fatalf("released message %d kept its attempt", j.MessageID)
 		}
+	}
+}
+
+// A 429's Retry-After reaches the queue as the retry delay when it is longer
+// than the backoff, and a permanent error is not retried.
+func TestWorkerHonoursRetryAfter(t *testing.T) {
+	q := newMemQueue("sms", 1)
+	s := &fakeSender{answer: func(j Job) Result {
+		if j.Attempt == 1 {
+			return Result{Outcome: Retry, StatusCode: 429, RetryAfter: 7 * time.Second}
+		}
+		return Result{Outcome: Permanent, StatusCode: 400}
+	}}
+	w := NewWorker(testConfig(), q, s)
+	w.rnd = fixed(0)
+	runUntil(t, w, func() bool { return q.count(StatusFailed) == 1 })
+
+	want := []Decision{{Status: StatusRetry, Delay: 7 * time.Second}, {Status: StatusFailed}}
+	if !slices.Equal(q.decided, want) || s.calls.Load() != 2 {
+		t.Fatalf("decisions %+v after %d calls, want %+v", q.decided, s.calls.Load(), want)
 	}
 }

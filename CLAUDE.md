@@ -92,7 +92,7 @@ segment DSL + validator + SQL compiler + consent.
 - [x] 4. `/metrics` (Prometheus text: messages by status/channel, provider
   attempts by outcome, LLM generations) and campaign status endpoint +
   `GET /campaigns/{id}/events` SSE for the live dashboard; `GET /campaigns` list.
-- [ ] 5. Tests: retry/backoff math, 429 Retry-After, permanent errors, idempotent
+- [x] 5. Tests: retry/backoff math, 429 Retry-After, permanent errors, idempotent
   enqueue, rate limiter; integration test end to end against the mock provider
   (duplicate-delivery counter stays 0). Update README/DECISIONS.
 
