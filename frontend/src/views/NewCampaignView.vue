@@ -4,11 +4,12 @@ import { t } from '@/lib/i18n'
 </script>
 
 <template>
-  <section class="space-y-6">
-    <RouterLink to="/" class="text-sm text-indigo-600 hover:underline">{{ t('nav.back') }}</RouterLink>
+  <section class="mx-auto max-w-4xl space-y-6">
+    <RouterLink to="/" class="inline-flex text-sm font-medium text-slate-500 hover:text-indigo-600">{{ t('nav.back') }}</RouterLink>
     <div class="space-y-2">
-      <h1 class="text-2xl font-semibold tracking-tight">{{ t('new.title') }}</h1>
-      <p class="text-slate-600">{{ t('new.intro') }}</p>
+      <p class="text-xs font-bold tracking-[0.14em] text-indigo-600 uppercase">{{ t('app.title') }}</p>
+      <h1 class="text-3xl font-bold tracking-tight text-slate-900">{{ t('new.title') }}</h1>
+      <p class="max-w-2xl text-slate-600">{{ t('new.intro') }}</p>
     </div>
     <NewCampaignForm />
   </section>

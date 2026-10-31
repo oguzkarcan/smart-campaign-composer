@@ -3,7 +3,7 @@ import CampaignsView from './views/CampaignsView.vue'
 import CampaignView from './views/CampaignView.vue'
 import NewCampaignView from './views/NewCampaignView.vue'
 
-const APP = 'Smart Campaign Composer'
+const APP = 'Sirius Studio'
 
 export const router = createRouter({
   history: createWebHistory(),

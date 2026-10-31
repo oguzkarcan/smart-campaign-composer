@@ -423,6 +423,16 @@ listed in the [README](README.md#unfinished-scope-and-known-gaps).
   `EventSource`'s automatic reconnect is worth having; the client closes it
   on the `done` event so it does not reconnect to a finished campaign.
 - **Tailwind v4 via its Vite plugin,** no PostCSS or Tailwind config files.
+- **Visual identity "Sirius Studio"** (Day 7): Plus Jakarta Sans and
+  JetBrains Mono from Google Fonts (system fonts if they cannot load), a
+  sticky translucent header, numbered section cards (`SectionShell`) that
+  match the step bar, and split layouts on wide screens: rule and counts
+  beside the matching-people list, each message editor beside its preview.
+  Dark mode still comes from remapping the palette, so new components need
+  no `dark:` classes. The only exception is the brand mark, whose colours are
+  fixed so it looks the same in both themes. Consent in the people table is
+  shown as icons, with the words kept for screen readers and on hover, so
+  the table fits beside the rule.
 - **The segment rule is shown as readable sentences** ("Added to cart at
   least 2 times in the last 7 days"), built by a pure, unit-tested function
   from the same DSL the backend validates, so the marketer sees exactly what

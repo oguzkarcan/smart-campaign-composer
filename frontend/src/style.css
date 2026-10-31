@@ -4,6 +4,34 @@
    directly; lib/theme.ts sets it from the saved choice or the OS. */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Plus Jakarta Sans and JetBrains Mono come from Google Fonts (index.html);
+   the system stacks take over if they cannot load. */
+@theme {
+  --font-sans: 'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* The well the SMS phone and the email card sit in: a dotted canvas. */
+.preview-stage {
+  background-color: color-mix(in oklab, var(--color-slate-100) 55%, var(--color-white));
+  background-image: radial-gradient(color-mix(in oklab, var(--color-slate-300) 70%, transparent) 1px, transparent 1px);
+  background-size: 14px 14px;
+}
+
+/* The page sits on a faint brand wash so white cards lift off it. */
+body {
+  background-image:
+    radial-gradient(60rem 30rem at 85% -10%, color-mix(in oklab, var(--color-indigo-100) 55%, transparent), transparent 70%),
+    radial-gradient(50rem 25rem at -10% 0%, color-mix(in oklab, var(--color-violet-100) 45%, transparent), transparent 70%);
+  background-repeat: no-repeat;
+  font-feature-settings: 'ss01', 'cv11';
+}
+.dark body {
+  background-image:
+    radial-gradient(60rem 30rem at 85% -10%, color-mix(in oklab, var(--color-indigo-100) 25%, transparent), transparent 70%),
+    radial-gradient(50rem 25rem at -10% 0%, color-mix(in oklab, var(--color-violet-100) 18%, transparent), transparent 70%);
+}
+
 /* Dark mode remaps the palette instead of adding a dark: twin to every class.
    Tailwind v4 renders each colour through a --color-* variable, so inverting
    the scales (50 <-> 950, 100 <-> 900, ...) turns light tints into dark tints

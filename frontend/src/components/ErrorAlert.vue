@@ -17,7 +17,7 @@ const problems = computed(() => (props.error instanceof ApiError ? props.error.p
 </script>
 
 <template>
-  <div role="alert" class="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900">
+  <div role="alert" class="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900">
     <p v-if="title" class="font-medium">{{ title }}</p>
     <p :class="{ 'mt-1': title }">{{ message }}</p>
     <ul v-if="problems.length" class="mt-2 list-disc space-y-0.5 pl-5">

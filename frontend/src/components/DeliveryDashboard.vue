@@ -5,10 +5,12 @@ import type { Campaign, CampaignStatus, Channel, Progress } from '@/api/types'
 import { CHANNELS } from '@/api/types'
 import { channelLabel, formatDateTime, formatNumber } from '@/lib/format'
 import { locale, t } from '@/lib/i18n'
-import { type CountKey, emptyCounts, finished, formatDuration, percentDone, RateMeter, SEGMENTS } from '@/lib/progress'
+import { emptyCounts, finished, formatDuration, percentDone, RateMeter, SEGMENTS } from '@/lib/progress'
 import { formatCountdown } from '@/lib/schedule'
+import ChannelIcon from './ChannelIcon.vue'
 import CountsBar from './CountsBar.vue'
 import ErrorAlert from './ErrorAlert.vue'
+import SectionShell from './SectionShell.vue'
 
 const props = defineProps<{
   campaignId: number
@@ -75,11 +77,28 @@ const channelRows = computed(() =>
     counts: progress.value?.channels[ch] ?? emptyCounts,
   })),
 )
-// On phones the table keeps the final states and totals; the overall bar
-// and legend above have the rest.
-function columnClass(key: CountKey): string {
-  return key === 'sent' || key === 'failed' ? '' : 'hidden sm:table-cell'
-}
+// Headline numbers, each tinted by what it means.
+const kpis = computed(() => [
+  { key: 'total', label: t('delivery.total'), value: formatNumber(totals.value.total), tone: 'border-slate-200 bg-white', ink: 'text-slate-900' },
+  { key: 'sent', label: t('count.sent'), value: formatNumber(totals.value.sent), tone: 'border-emerald-200 bg-emerald-50/60', ink: 'text-emerald-700' },
+  { key: 'retry', label: t('count.retry'), value: formatNumber(totals.value.retry), tone: 'border-amber-200 bg-amber-50/60', ink: 'text-amber-700' },
+  { key: 'failed', label: t('count.failed'), value: formatNumber(totals.value.failed), tone: 'border-rose-200 bg-rose-50/60', ink: 'text-rose-700' },
+  {
+    key: 'rate',
+    label: t('delivery.throughput'),
+    // Only meaningful while messages are going out.
+    value: done.value || scheduled.value ? '—' : t('delivery.perSecond', { n: formatNumber(Math.round(rate.value)) }),
+    tone: 'border-indigo-200 bg-indigo-50/60',
+    ink: 'text-indigo-700',
+  },
+  {
+    key: 'elapsed',
+    label: done.value ? t('delivery.took') : t('delivery.elapsed'),
+    value: elapsed.value ?? '—',
+    tone: 'border-slate-200 bg-white',
+    ink: 'text-slate-900',
+  },
+])
 
 const failures = computed(() => progress.value?.failures ?? [])
 const done = computed(() => progress.value?.done ?? false)
@@ -140,20 +159,19 @@ const liveDot = computed(() => {
 </script>
 
 <template>
-  <section class="space-y-4" aria-labelledby="delivery-heading">
-    <div class="flex flex-wrap items-center justify-between gap-2">
-      <h2 id="delivery-heading" class="text-lg font-semibold">{{ t('delivery.title') }}</h2>
-      <span class="flex items-center gap-2 text-sm text-slate-500" role="status">
+  <SectionShell :step="3" heading-id="delivery-heading" :title="t('delivery.title')">
+    <template #actions>
+      <span class="flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600" role="status">
         <span class="size-2 rounded-full" :class="liveDot" />
         {{ liveLabel }}
       </span>
-    </div>
+    </template>
 
     <ErrorAlert v-if="streamError" :error="streamError" :title="t('delivery.stopped')">
       <button type="button" class="font-medium underline" @click="connect">{{ t('delivery.reconnect') }}</button>
     </ErrorAlert>
 
-    <div v-if="!progress && !streamError" class="h-40 animate-pulse rounded-xl bg-slate-200" aria-busy="true" />
+    <div v-if="!progress && !streamError" class="h-40 animate-pulse rounded-xl bg-slate-100" aria-busy="true" />
 
     <template v-if="progress">
       <ErrorAlert v-if="actionError" :error="actionError" :title="t('delivery.actionError')" />
@@ -163,7 +181,7 @@ const liveDot = computed(() => {
       >
         <div class="space-y-1">
           <p>
-            <span class="font-medium">{{ t('delivery.scheduledFor', { date: formatDateTime(scheduledAt) }) }}</span>
+            <span class="font-semibold">{{ t('delivery.scheduledFor', { date: formatDateTime(scheduledAt) }) }}</span>
             <span class="text-cyan-800"> · {{ t('delivery.startsIn', { countdown }) }}</span>
           </p>
           <p class="text-sm text-cyan-800">{{ t('delivery.waiting', { n: formatNumber(totals.total) }) }}</p>
@@ -172,7 +190,7 @@ const liveDot = computed(() => {
           <button
             type="button"
             :disabled="!!acting"
-            class="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+            class="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50"
             @click="act('sendNow')"
           >
             {{ acting === 'sendNow' ? t('delivery.sending') : t('delivery.sendNow') }}
@@ -187,79 +205,71 @@ const liveDot = computed(() => {
           </button>
         </div>
       </div>
-      <div class="space-y-4 rounded-xl border border-slate-200 bg-white p-5">
-        <div class="flex flex-wrap items-end justify-between gap-4">
+
+      <div class="grid gap-5 lg:grid-cols-12">
+        <div class="flex flex-col justify-between gap-4 rounded-xl border border-slate-200 bg-slate-50/60 p-5 lg:col-span-5">
           <div>
-            <p class="text-3xl font-semibold tabular-nums">{{ percent }}%</p>
-            <p class="text-sm text-slate-500">
+            <p class="text-5xl font-bold tracking-tight text-slate-900 tabular-nums">{{ percent }}%</p>
+            <p class="mt-1 text-sm text-slate-500">
               {{ t('delivery.finishedOf', { done: formatNumber(finished(totals)), total: formatNumber(totals.total) }) }}
             </p>
           </div>
-          <dl class="flex gap-6 text-sm">
-            <div v-if="!done && !scheduled">
-              <dt class="text-slate-500">{{ t('delivery.throughput') }}</dt>
-              <dd class="font-medium tabular-nums">{{ t('delivery.perSecond', { n: formatNumber(Math.round(rate)) }) }}</dd>
-            </div>
-            <div v-if="elapsed">
-              <dt class="text-slate-500">{{ done ? t('delivery.took') : t('delivery.elapsed') }}</dt>
-              <dd class="font-medium tabular-nums">{{ elapsed }}</dd>
-            </div>
-          </dl>
+          <CountsBar :counts="totals" />
+          <ul class="flex flex-wrap gap-x-3.5 gap-y-1 text-xs">
+            <li v-for="s in SEGMENTS" :key="s.key" class="flex items-center gap-1.5">
+              <span class="size-2 rounded-full" :class="s.dot" />
+              <span class="text-slate-500">{{ t(s.label) }}</span>
+              <span class="font-semibold tabular-nums">{{ formatNumber(totals[s.key]) }}</span>
+            </li>
+          </ul>
         </div>
-        <CountsBar :counts="totals" />
-        <ul class="flex flex-wrap gap-x-5 gap-y-1 text-sm">
-          <li v-for="s in SEGMENTS" :key="s.key" class="flex items-center gap-1.5">
-            <span class="size-2.5 rounded-sm" :class="s.dot" />
-            <span class="text-slate-600">{{ t(s.label) }}</span>
-            <span class="font-medium tabular-nums">{{ formatNumber(totals[s.key]) }}</span>
-          </li>
-        </ul>
+
+        <dl class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:col-span-7">
+          <div v-for="k in kpis" :key="k.key" class="rounded-xl border p-4" :class="k.tone">
+            <dt class="text-xs font-medium text-slate-500">{{ k.label }}</dt>
+            <dd class="mt-1 text-2xl font-bold tracking-tight tabular-nums" :class="k.ink">{{ k.value }}</dd>
+          </div>
+        </dl>
       </div>
 
-      <div class="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-        <table class="w-full text-sm">
-          <thead class="border-b border-slate-200 text-left text-xs tracking-wide text-slate-500 uppercase">
-            <tr>
-              <th class="px-4 py-2 font-medium">{{ t('delivery.channel') }}</th>
-              <th class="hidden w-1/3 px-4 py-2 font-medium sm:table-cell">{{ t('delivery.progress') }}</th>
-              <th v-for="s in SEGMENTS" :key="s.key" class="px-3 py-2 text-right font-medium" :class="columnClass(s.key)">
-                {{ t(s.label) }}
-              </th>
-              <th class="px-4 py-2 text-right font-medium">{{ t('delivery.total') }}</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-100">
-            <tr v-for="row in channelRows" :key="row.channel">
-              <td class="px-4 py-3 font-medium whitespace-nowrap">{{ channelLabel(row.channel) }}</td>
-              <td class="hidden px-4 py-3 sm:table-cell">
-                <div class="flex items-center gap-2">
-                  <CountsBar :counts="row.counts" size="sm" />
-                  <span class="w-10 text-right text-xs tabular-nums text-slate-500">{{ percentDone(row.counts) }}%</span>
-                </div>
-              </td>
-              <td
-                v-for="s in SEGMENTS"
-                :key="s.key"
-                class="px-3 py-3 text-right tabular-nums"
-                :class="[columnClass(s.key), { 'text-rose-600 font-medium': s.key === 'failed' && row.counts.failed > 0 }]"
+      <div class="grid gap-3" :class="{ 'md:grid-cols-2': channelRows.length > 1 }">
+        <article v-for="row in channelRows" :key="row.channel" class="space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
+          <header class="flex items-center justify-between gap-2">
+            <h3 class="flex items-center gap-2 text-sm font-semibold text-slate-900">
+              <span class="flex size-7 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
+                <ChannelIcon :channel="row.channel" class="size-4" />
+              </span>
+              {{ channelLabel(row.channel) }}
+            </h3>
+            <span class="text-sm text-slate-500 tabular-nums">
+              <span class="font-semibold text-slate-900">{{ percentDone(row.counts) }}%</span>
+              · {{ formatNumber(row.counts.total) }} {{ t('delivery.total').toLowerCase() }}
+            </span>
+          </header>
+          <CountsBar :counts="row.counts" size="sm" />
+          <dl class="grid grid-cols-5 gap-2 text-center">
+            <div v-for="s in SEGMENTS" :key="s.key" class="flex flex-col justify-between rounded-lg bg-slate-50 px-1 py-1.5">
+              <dt class="text-[11px] leading-tight break-words text-slate-500">{{ t(s.label) }}</dt>
+              <dd
+                class="text-sm font-semibold tabular-nums"
+                :class="s.key === 'failed' && row.counts.failed > 0 ? 'text-rose-600' : 'text-slate-900'"
               >
                 {{ formatNumber(row.counts[s.key]) }}
-              </td>
-              <td class="px-4 py-3 text-right font-medium tabular-nums">{{ formatNumber(row.counts.total) }}</td>
-            </tr>
-          </tbody>
-        </table>
+              </dd>
+            </div>
+          </dl>
+        </article>
       </div>
 
-      <div v-if="failures.length" class="rounded-xl border border-rose-200 bg-white">
-        <h3 class="border-b border-rose-100 px-4 py-2 text-sm font-semibold text-rose-900">{{ t('delivery.failures') }}</h3>
+      <div v-if="failures.length" class="overflow-hidden rounded-xl border border-rose-200 bg-white">
+        <h3 class="border-b border-rose-100 bg-rose-50/60 px-4 py-2 text-sm font-semibold text-rose-900">{{ t('delivery.failures') }}</h3>
         <ul class="divide-y divide-slate-100 text-sm">
           <li v-for="f in failures" :key="f.error" class="flex items-start justify-between gap-4 px-4 py-2">
-            <span class="break-all text-slate-700">{{ f.error }}</span>
-            <span class="shrink-0 font-medium tabular-nums text-rose-600">{{ formatNumber(f.count) }}</span>
+            <span class="font-mono text-xs break-all text-slate-700">{{ f.error }}</span>
+            <span class="shrink-0 font-semibold tabular-nums text-rose-600">{{ formatNumber(f.count) }}</span>
           </li>
         </ul>
       </div>
     </template>
-  </section>
+  </SectionShell>
 </template>

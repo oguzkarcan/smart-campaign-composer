@@ -9,6 +9,7 @@ import { languageTabs } from '@/lib/languages'
 import { defaultSchedule, MAX_SCHEDULE_DAYS, parseSchedule, toLocalInput } from '@/lib/schedule'
 import { extractPartial } from '@/lib/streamExtract'
 import ChannelEditor from './ChannelEditor.vue'
+import SectionShell from './SectionShell.vue'
 import ErrorAlert from './ErrorAlert.vue'
 
 const props = defineProps<{ campaign: Campaign; previewPerson?: Person | null }>()
@@ -189,24 +190,27 @@ async function approve() {
 </script>
 
 <template>
-  <section class="space-y-4" aria-labelledby="content-heading">
-    <div class="flex items-center justify-between gap-4">
-      <h2 id="content-heading" class="text-lg font-semibold">{{ t('messages.title') }}</h2>
+  <SectionShell :step="2" heading-id="content-heading" :title="t('messages.title')" :subtitle="tabs.length > 1 ? t('messages.ownLanguage') : undefined">
+    <template v-if="canGenerate && contents.length && !generating" #actions>
       <button
-        v-if="canGenerate && contents.length && !generating"
         type="button"
         :disabled="approving"
-        class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
+        class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-xs hover:bg-slate-50 disabled:opacity-50"
         @click="generate"
       >
+        <span aria-hidden="true" class="text-indigo-500">✦</span>
         {{ t('messages.regenerate') }}
       </button>
-    </div>
+    </template>
 
     <ErrorAlert v-if="generateError" :error="generateError" :title="t('messages.error')" />
 
     <!-- Live generation: progress for the marketer, the model's raw output on demand. -->
-    <div v-if="generating" class="space-y-3 rounded-xl border border-indigo-200 bg-white p-4" aria-live="polite">
+    <div
+      v-if="generating"
+      class="space-y-3 rounded-xl border border-indigo-200 bg-linear-to-r from-indigo-50 to-violet-50 p-4"
+      aria-live="polite"
+    >
       <div class="flex items-center justify-between gap-2 text-sm">
         <span class="flex flex-wrap items-center gap-2 text-indigo-700">
           <span class="size-2 animate-pulse rounded-full bg-indigo-500" />
@@ -229,7 +233,12 @@ async function approve() {
     </div>
 
     <template v-if="contents.length || (generating && streamLanguage)">
-      <div v-if="tabs.length > 1" role="tablist" :aria-label="t('messages.tabs')" class="flex flex-wrap gap-2">
+      <div
+        v-if="tabs.length > 1"
+        role="tablist"
+        :aria-label="t('messages.tabs')"
+        class="inline-flex flex-wrap gap-1 rounded-xl bg-slate-100 p-1"
+      >
         <button
           v-for="tab in tabs"
           :key="tab.language"
@@ -237,11 +246,11 @@ async function approve() {
           role="tab"
           :aria-selected="activeLanguage === tab.language"
           :disabled="generating"
-          class="flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium"
+          class="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-semibold transition-colors"
           :class="
             activeLanguage === tab.language
-              ? 'border-indigo-600 bg-indigo-50 text-indigo-800'
-              : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-60 disabled:hover:bg-white'
+              ? 'bg-white text-indigo-700 shadow-sm'
+              : 'text-slate-600 hover:text-slate-900 disabled:opacity-60 disabled:hover:text-slate-600'
           "
           @click="activeLanguage = tab.language"
         >
@@ -263,14 +272,12 @@ async function approve() {
           />
         </button>
       </div>
-      <p v-if="tabs.length > 1" class="text-sm text-slate-500">{{ t('messages.ownLanguage') }}</p>
     </template>
 
     <!-- The answer being written, field by field, in the same editors and previews. -->
     <div
       v-if="generating && streamLanguage"
-      class="grid gap-4"
-      :class="{ 'lg:grid-cols-2': campaign.channels.length > 1 }"
+      class="grid gap-5"
     >
       <ChannelEditor
         v-for="ch in campaign.channels"
@@ -288,12 +295,12 @@ async function approve() {
     </div>
 
     <template v-if="!generating && !contents.length">
-      <div v-if="canGenerate" class="rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center">
+      <div v-if="canGenerate" class="rounded-xl border border-dashed border-indigo-200 bg-indigo-50/40 p-8 text-center">
         <template v-if="reachable > 0">
           <p class="text-slate-600">{{ t('messages.next') }}</p>
           <button
             type="button"
-            class="mt-3 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+            class="mt-3 inline-flex items-center gap-2 rounded-lg bg-linear-to-r from-indigo-600 to-violet-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:from-indigo-700 hover:to-violet-700"
             @click="generate"
           >
             {{ t('messages.generate') }}
@@ -338,8 +345,7 @@ async function approve() {
       <template v-for="tab in tabs" :key="tab.language">
         <div
           v-show="tab.language === activeLanguage"
-          class="grid gap-4"
-          :class="{ 'lg:grid-cols-2': campaign.channels.length > 1 }"
+          class="grid gap-5"
         >
           <ChannelEditor
             v-for="c in contents.filter((m) => m.language === tab.language)"
@@ -360,7 +366,7 @@ async function approve() {
 
       <ErrorAlert v-if="approveError" :error="approveError" :title="t('messages.approveError')" />
 
-      <div v-if="status === 'content_ready'" class="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+      <div v-if="status === 'content_ready'" class="space-y-3 rounded-xl border border-emerald-200 bg-emerald-50/40 p-4">
         <fieldset class="space-y-2" :disabled="!editable">
           <legend class="text-sm font-medium text-slate-700">{{ t('messages.when') }}</legend>
           <div class="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
@@ -392,7 +398,7 @@ async function approve() {
           <button
             type="button"
             :disabled="!canApprove"
-            class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+            class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
             @click="approve"
           >
             {{ approving ? t('messages.approving') : when === 'later' ? t('messages.approveSchedule') : t('messages.approveSend') }}
@@ -405,5 +411,5 @@ async function approve() {
       </p>
       <p v-else class="text-sm text-slate-500">{{ t('messages.locked') }}</p>
     </template>
-  </section>
+  </SectionShell>
 </template>

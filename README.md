@@ -10,6 +10,14 @@ shows delivery status live.
 > Insider One · AI Developer Case Study. No real messages are ever sent: all
 > recipients are generated fake users and delivery goes to a local mock provider.
 
+The web app is branded **Sirius Studio**. A finished campaign, in light mode
+(English) and in dark mode (Turkish), previewing the messages as one of the
+matching people:
+
+| Light · EN | Dark · TR |
+| --- | --- |
+| ![Campaign page in light mode: hero card, step bar and delivery dashboard](docs/images/studio-light.png) | ![Messages section in dark mode: SMS editor beside the phone preview](docs/images/studio-dark.png) |
+
 ## Quick start
 
 Requirements: Docker with Compose. Nothing else (Go and Node run in Docker for

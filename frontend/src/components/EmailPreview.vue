@@ -6,7 +6,7 @@ defineProps<{ subject: string; body: string; recipient: string }>()
 </script>
 
 <template>
-  <figure class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+  <figure class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg shadow-slate-900/10">
     <figcaption class="space-y-0.5 border-b border-slate-100 bg-slate-50 px-4 py-3 text-xs text-slate-500">
       <p>
         <span class="inline-block w-12">{{ t('preview.from') }}</span>

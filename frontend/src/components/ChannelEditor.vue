@@ -4,7 +4,9 @@ import { ApiError, editContent } from '@/api/client'
 import type { Campaign, Channel, Content, Language, Person } from '@/api/types'
 import { checkField, render, token, VARIABLES } from '@/lib/content'
 import { channelLabel } from '@/lib/format'
+import { languageLabel } from '@/lib/format'
 import { t } from '@/lib/i18n'
+import ChannelIcon from './ChannelIcon.vue'
 import EmailPreview from './EmailPreview.vue'
 import ErrorAlert from './ErrorAlert.vue'
 import LengthCounter from './LengthCounter.vue'
@@ -150,10 +152,18 @@ function fieldClass(problems: string[]) {
 </script>
 
 <template>
-  <article class="space-y-4 rounded-xl border border-slate-200 bg-white p-5">
-    <header class="flex items-center justify-between gap-2">
-      <h3 class="font-semibold">{{ channelLabel(channel) }}</h3>
-      <span v-if="streaming" class="flex items-center gap-1.5 text-xs text-indigo-700">
+  <article class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xs">
+    <header class="flex items-center justify-between gap-2 border-b border-slate-100 px-5 py-3">
+      <h3 class="flex items-center gap-2 font-semibold text-slate-900">
+        <span class="flex size-7 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
+          <ChannelIcon :channel="channel" class="size-4" />
+        </span>
+        {{ channelLabel(channel) }}
+        <span class="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] font-medium text-slate-500" :title="languageLabel(language)">
+          {{ language.toUpperCase() }}
+        </span>
+      </h3>
+      <span v-if="streaming" class="flex items-center gap-1.5 text-xs font-medium text-indigo-700">
         <span class="size-1.5 animate-pulse rounded-full bg-indigo-500" />{{ t('editor.writing') }}
       </span>
       <span v-else class="text-xs text-slate-500">
@@ -162,96 +172,101 @@ function fieldClass(problems: string[]) {
       </span>
     </header>
 
-    <div v-if="isEmail">
-      <div class="flex items-baseline justify-between">
-        <label :for="`${language}-${channel}-subject`" class="text-sm font-medium">{{ t('editor.subject') }}</label>
-        <LengthCounter
-          :count="subjectCheck.worstCase"
-          :limit="subjectCheck.limit"
-          :variables="variableLengths"
-        />
+    <div class="grid lg:grid-cols-12">
+      <div class="space-y-4 p-5 lg:col-span-7">
+        <div v-if="isEmail">
+          <div class="flex items-baseline justify-between">
+            <label :for="`${language}-${channel}-subject`" class="text-sm font-medium">{{ t('editor.subject') }}</label>
+            <LengthCounter
+              :count="subjectCheck.worstCase"
+              :limit="subjectCheck.limit"
+              :variables="variableLengths"
+            />
+          </div>
+          <input
+            :id="`${language}-${channel}-subject`"
+            v-model="subject"
+            type="text"
+            :disabled="readonly || saving || !!streaming"
+            :class="fieldClass(problemsFor('subject', subjectCheck.problems))"
+            class="mt-1"
+          />
+          <ul class="mt-1 space-y-0.5 text-xs text-rose-600">
+            <li v-for="p in problemsFor('subject', subjectCheck.problems)" :key="p">{{ t('editor.subject') }}: {{ p }}</li>
+          </ul>
+        </div>
+
+        <div>
+          <div class="flex items-baseline justify-between">
+            <label :for="`${language}-${channel}-body`" class="text-sm font-medium">{{ isEmail ? t('editor.body') : t('editor.message') }}</label>
+            <LengthCounter :count="bodyCheck.worstCase" :limit="bodyCheck.limit" :variables="variableLengths" />
+          </div>
+          <textarea
+            :id="`${language}-${channel}-body`"
+            ref="bodyField"
+            v-model="body"
+            :rows="isEmail ? 8 : 3"
+            :disabled="readonly || saving || !!streaming"
+            :class="fieldClass(problemsFor('body', bodyCheck.problems))"
+            class="mt-1"
+          />
+          <ul class="mt-1 space-y-0.5 text-xs text-rose-600">
+            <li v-for="p in problemsFor('body', bodyCheck.problems)" :key="p">{{ isEmail ? t('editor.body') : t('editor.message') }}: {{ p }}</li>
+          </ul>
+          <div v-if="!readonly && !streaming" class="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+            <span>{{ t('editor.insert') }}</span>
+            <button
+              v-for="v in VARIABLES"
+              :key="v"
+              type="button"
+              :disabled="saving"
+              class="rounded-md border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 font-mono text-indigo-700 hover:bg-indigo-100"
+              @click="insertVariable(v)"
+            >
+              {{ token(v) }}
+            </button>
+          </div>
+        </div>
+
+        <ErrorAlert v-if="showSaveAlert" :error="saveError" :title="t('editor.saveError')" />
+
+        <footer v-if="!readonly && !streaming && dirty" class="flex gap-2 border-t border-slate-100 pt-4">
+          <button
+            type="button"
+            :disabled="!valid || saving"
+            class="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+            @click="save"
+          >
+            {{ saving ? t('editor.saving') : t('editor.save') }}
+          </button>
+          <button
+            type="button"
+            :disabled="saving"
+            class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium hover:bg-slate-50"
+            @click="reset"
+          >
+            {{ t('editor.discard') }}
+          </button>
+        </footer>
       </div>
-      <input
-        :id="`${language}-${channel}-subject`"
-        v-model="subject"
-        type="text"
-        :disabled="readonly || saving || !!streaming"
-        :class="fieldClass(problemsFor('subject', subjectCheck.problems))"
-        class="mt-1"
-      />
-      <ul class="mt-1 space-y-0.5 text-xs text-rose-600">
-        <li v-for="p in problemsFor('subject', subjectCheck.problems)" :key="p">{{ t('editor.subject') }}: {{ p }}</li>
-      </ul>
-    </div>
-
-    <div>
-      <div class="flex items-baseline justify-between">
-        <label :for="`${language}-${channel}-body`" class="text-sm font-medium">{{ isEmail ? t('editor.body') : t('editor.message') }}</label>
-        <LengthCounter :count="bodyCheck.worstCase" :limit="bodyCheck.limit" :variables="variableLengths" />
-      </div>
-      <textarea
-        :id="`${language}-${channel}-body`"
-        ref="bodyField"
-        v-model="body"
-        :rows="isEmail ? 8 : 3"
-        :disabled="readonly || saving || !!streaming"
-        :class="fieldClass(problemsFor('body', bodyCheck.problems))"
-        class="mt-1"
-      />
-      <ul class="mt-1 space-y-0.5 text-xs text-rose-600">
-        <li v-for="p in problemsFor('body', bodyCheck.problems)" :key="p">{{ isEmail ? t('editor.body') : t('editor.message') }}: {{ p }}</li>
-      </ul>
-      <div v-if="!readonly && !streaming" class="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-        <span>{{ t('editor.insert') }}</span>
-        <button
-          v-for="v in VARIABLES"
-          :key="v"
-          type="button"
-          :disabled="saving"
-          class="rounded border border-slate-300 px-1.5 py-0.5 font-mono hover:bg-slate-50"
-          @click="insertVariable(v)"
-        >
-          {{ token(v) }}
-        </button>
+      <div class="preview-stage border-t border-slate-100 p-5 lg:col-span-5 lg:border-t-0 lg:border-l">
+        <div class="space-y-3 lg:sticky lg:top-24">
+          <p class="text-[11px] font-semibold tracking-wider text-slate-500 uppercase">
+            {{ t('preview.title', { name: sample.first_name, city: sample.city }) }}
+          </p>
+          <p v-if="skipped" class="rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-800">
+            {{ t('preview.noConsent', { name: sample.first_name, channel: channelLabel(channel) }) }}
+          </p>
+          <EmailPreview
+            v-if="isEmail"
+            :subject="preview(subject)"
+            :body="preview(body)"
+            :recipient="`${sample.first_name} <${sample.email}>`"
+            :class="{ 'opacity-60': skipped }"
+          />
+          <SmsPreview v-else :text="preview(body)" :recipient="sample.phone" :class="{ 'opacity-60': skipped }" />
+        </div>
       </div>
     </div>
-
-    <div class="space-y-2 rounded-lg bg-slate-50 p-3">
-      <p class="text-xs font-medium tracking-wide text-slate-500 uppercase">
-        {{ t('preview.title', { name: sample.first_name, city: sample.city }) }}
-      </p>
-      <p v-if="skipped" class="rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-800">
-        {{ t('preview.noConsent', { name: sample.first_name, channel: channelLabel(channel) }) }}
-      </p>
-      <EmailPreview
-        v-if="isEmail"
-        :subject="preview(subject)"
-        :body="preview(body)"
-        :recipient="`${sample.first_name} <${sample.email}>`"
-        :class="{ 'opacity-60': skipped }"
-      />
-      <SmsPreview v-else :text="preview(body)" :recipient="sample.phone" :class="{ 'opacity-60': skipped }" />
-    </div>
-
-    <ErrorAlert v-if="showSaveAlert" :error="saveError" :title="t('editor.saveError')" />
-
-    <footer v-if="!readonly && !streaming && dirty" class="flex gap-2">
-      <button
-        type="button"
-        :disabled="!valid || saving"
-        class="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
-        @click="save"
-      >
-        {{ saving ? t('editor.saving') : t('editor.save') }}
-      </button>
-      <button
-        type="button"
-        :disabled="saving"
-        class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium hover:bg-slate-50"
-        @click="reset"
-      >
-        {{ t('editor.discard') }}
-      </button>
-    </footer>
   </article>
 </template>

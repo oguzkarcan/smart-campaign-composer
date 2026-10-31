@@ -153,3 +153,7 @@ segment DSL + validator + SQL compiler + consent.
   while content streams (`lib/streamExtract.ts`); `llm_provider`/`llm_model` in
   `/health` and a Claude / Mock AI badge in the header. Unit, handler and
   integration tests; README/DECISIONS updated.
+- [x] 2. Visual redesign as "Sirius Studio": brand header, fonts, hero card,
+  workflow step bar, numbered section cards, split audience / message layouts,
+  delivery KPI cards, list and composer polish; showcase screenshots in
+  `docs/images/` embedded in the README.

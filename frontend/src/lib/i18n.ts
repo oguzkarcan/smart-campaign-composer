@@ -11,7 +11,8 @@ export const LOCALES: readonly Locale[] = ['tr', 'en']
 
 const en = {
   // App shell
-  'app.title': 'Smart Campaign Composer',
+  'app.title': 'Sirius Studio',
+  'app.subtitle': 'Smart Campaign Composer',
   'nav.campaigns': 'Campaigns',
   'nav.new': 'New campaign',
   'nav.back': '← Campaigns',
@@ -70,6 +71,7 @@ const en = {
 
   // Campaign list
   'list.title': 'Campaigns',
+  'list.intro': 'Turn a plain-language brief into an audience and messages, approve them, and watch delivery live.',
   'list.loadError': 'Could not load campaigns',
   'list.empty': 'No campaigns yet',
   'list.emptyHint': 'Write a brief and Claude proposes the audience and the messages.',
@@ -270,7 +272,8 @@ const en = {
 export type MessageKey = keyof typeof en
 
 const tr: Record<MessageKey, string> = {
-  'app.title': 'Smart Campaign Composer',
+  'app.title': 'Sirius Studio',
+  'app.subtitle': 'Akıllı Kampanya Oluşturucu',
   'nav.campaigns': 'Kampanyalar',
   'nav.new': 'Yeni kampanya',
   'nav.back': '← Kampanyalar',
@@ -326,6 +329,7 @@ const tr: Record<MessageKey, string> = {
   'steps.delivery.failed': 'Hiçbiri teslim edilemedi',
 
   'list.title': 'Kampanyalar',
+  'list.intro': 'Sade bir brief’i hedef kitleye ve mesajlara dönüştürün, onaylayın ve gönderimi canlı izleyin.',
   'list.loadError': 'Kampanyalar yüklenemedi',
   'list.empty': 'Henüz kampanya yok',
   'list.emptyHint': 'Bir brief yazın; Claude kitleyi ve mesajları önersin.',

@@ -4,13 +4,15 @@ import { ApiError, generateSegment, getCampaign } from '@/api/client'
 import type { Campaign, CampaignStatus, Person } from '@/api/types'
 import AudienceCounts from '@/components/AudienceCounts.vue'
 import AudiencePeople from '@/components/AudiencePeople.vue'
+import ChannelIcon from '@/components/ChannelIcon.vue'
 import ContentSection from '@/components/ContentSection.vue'
 import DeliveryDashboard from '@/components/DeliveryDashboard.vue'
 import ErrorAlert from '@/components/ErrorAlert.vue'
 import RuleTree from '@/components/RuleTree.vue'
+import SectionShell from '@/components/SectionShell.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import StepProgress from '@/components/StepProgress.vue'
-import { channelLabel, editableStatuses, formatDateTime } from '@/lib/format'
+import { channelLabel, editableStatuses, formatDateTime, formatNumber } from '@/lib/format'
 import { locale, t } from '@/lib/i18n'
 import { describeRule } from '@/lib/segment'
 
@@ -87,10 +89,12 @@ async function regenerate() {
 </script>
 
 <template>
-  <div class="space-y-8">
-    <RouterLink to="/" class="text-sm text-indigo-600 hover:underline">{{ t('nav.back') }}</RouterLink>
+  <div class="space-y-6">
+    <RouterLink to="/" class="inline-flex items-center gap-1 text-sm font-medium text-slate-500 hover:text-indigo-600">
+      {{ t('nav.back') }}
+    </RouterLink>
 
-    <div v-if="notFound" class="rounded-xl border border-slate-200 bg-white p-8 text-center">
+    <div v-if="notFound" class="rounded-2xl border border-slate-200 bg-white p-10 text-center shadow-sm">
       <p class="font-medium">{{ t('campaign.notFound', { id }) }}</p>
       <RouterLink to="/" class="mt-2 inline-block text-sm text-indigo-600 hover:underline">{{ t('campaign.backToList') }}</RouterLink>
     </div>
@@ -100,32 +104,59 @@ async function regenerate() {
     </ErrorAlert>
 
     <div v-else-if="!campaign" class="animate-pulse space-y-4" aria-busy="true">
-      <div class="h-7 w-48 rounded bg-slate-200" />
-      <div class="h-20 rounded-xl bg-slate-200" />
-      <div class="h-40 rounded-xl bg-slate-200" />
+      <div class="h-44 rounded-2xl bg-slate-200" />
+      <div class="h-72 rounded-2xl bg-slate-200" />
     </div>
 
     <template v-else>
-      <header class="space-y-3">
-        <div class="flex flex-wrap items-center gap-3">
-          <h1 class="text-2xl font-semibold tracking-tight">{{ t('campaign.title', { id: campaign.id }) }}</h1>
-          <StatusBadge :status="campaign.status" />
-          <span class="text-sm text-slate-500">{{ createdAt }}</span>
-        </div>
-        <blockquote class="rounded-xl border border-slate-200 bg-white p-4 whitespace-pre-line text-slate-700">
-          {{ campaign.brief }}
-        </blockquote>
-        <div class="flex items-center gap-2 text-sm">
-          <span class="text-slate-500">{{ t('campaign.channels') }}</span>
-          <span v-for="ch in campaign.channels" :key="ch" class="rounded bg-slate-100 px-2 py-0.5 font-medium">
-            {{ channelLabel(ch) }}
-          </span>
-        </div>
-        <StepProgress
-          :status="campaign.status"
-          :matched="campaign.audience?.matched"
-          class="rounded-xl border border-slate-200 bg-white px-4 py-3"
+      <header class="relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div
+          class="pointer-events-none absolute -top-24 -right-16 size-72 rounded-full bg-linear-to-br from-indigo-100 to-violet-100 opacity-70 blur-3xl"
+          aria-hidden="true"
         />
+        <div class="relative space-y-5 px-5 pt-6 pb-5 sm:px-6">
+          <div class="flex flex-wrap items-start justify-between gap-4">
+            <div class="space-y-1.5">
+              <div class="flex flex-wrap items-center gap-3">
+                <h1 class="text-2xl font-bold tracking-tight text-slate-900">{{ t('campaign.title', { id: campaign.id }) }}</h1>
+                <StatusBadge :status="campaign.status" />
+              </div>
+              <p class="flex items-center gap-1.5 text-sm text-slate-500">
+                <svg viewBox="0 0 20 20" class="size-4" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                  <circle cx="10" cy="10" r="7.5" />
+                  <path d="M10 6v4l2.5 1.5" stroke-linecap="round" />
+                </svg>
+                {{ createdAt }}
+              </p>
+            </div>
+            <div class="flex items-center gap-2 text-sm">
+              <span class="sr-only">{{ t('campaign.channels') }}</span>
+              <span
+                v-for="ch in campaign.channels"
+                :key="ch"
+                class="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 font-medium text-slate-700 shadow-xs"
+              >
+                <ChannelIcon :channel="ch" class="size-4 text-indigo-600" />
+                {{ channelLabel(ch) }}
+              </span>
+            </div>
+          </div>
+          <figure class="relative rounded-xl border border-amber-200/70 bg-amber-50/70 py-4 pr-4 pl-14">
+            <span class="absolute inset-y-3 left-0 w-1 rounded-r-full bg-amber-400" aria-hidden="true" />
+            <svg
+              viewBox="0 0 24 24"
+              class="absolute top-4 left-5 size-6 text-amber-500"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <path d="M9.5 6C6.5 6.6 4.5 9 4.5 12.3V18h5.6v-5.6H7.4c.1-2 1.2-3.3 2.6-3.8L9.5 6zm9.4 0c-3 .6-5 3-5 6.3V18h5.6v-5.6h-2.7c.1-2 1.2-3.3 2.6-3.8L18.9 6z" />
+            </svg>
+            <blockquote class="text-[15px] leading-relaxed whitespace-pre-line text-slate-800">{{ campaign.brief }}</blockquote>
+          </figure>
+        </div>
+        <div class="relative border-t border-slate-100 bg-slate-50/70 px-5 py-4 sm:px-6">
+          <StepProgress :status="campaign.status" :matched="campaign.audience?.matched" />
+        </div>
       </header>
 
       <DeliveryDashboard
@@ -139,48 +170,54 @@ async function regenerate() {
         @update="campaign = $event"
       />
 
-      <section class="space-y-4" aria-labelledby="audience-heading">
-        <div class="flex items-center justify-between gap-4">
-          <h2 id="audience-heading" class="text-lg font-semibold">{{ t('audience.title') }}</h2>
+      <SectionShell
+        :step="1"
+        heading-id="audience-heading"
+        :title="t('audience.title')"
+        :subtitle="campaign.audience ? t('steps.audience.done', { n: formatNumber(campaign.audience.matched) }) : undefined"
+      >
+        <template v-if="editable && campaign.segment_rule" #actions>
           <button
-            v-if="editable && campaign.segment_rule"
             type="button"
             :disabled="generating || contentBusy"
-            class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
+            class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-xs hover:bg-slate-50 disabled:opacity-50"
             @click="regenerate"
           >
             {{ generating ? t('audience.regenerating') : t('audience.regenerate') }}
           </button>
-        </div>
+        </template>
 
         <ErrorAlert v-if="segmentError" :error="segmentError" :title="t('audience.error')" />
         <ErrorAlert v-else-if="campaign.last_error" :error="campaign.last_error" :title="t('audience.lastError')" />
 
-        <div v-if="!campaign.segment_rule" class="rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center">
+        <div v-if="!campaign.segment_rule" class="rounded-xl border border-dashed border-slate-300 p-8 text-center">
           <p class="text-slate-600">{{ t('audience.none') }}</p>
           <button
             v-if="editable"
             type="button"
             :disabled="generating"
-            class="mt-3 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+            class="mt-3 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:opacity-50"
             @click="regenerate"
           >
             {{ generating ? t('new.submitting') : t('new.submit') }}
           </button>
         </div>
 
-        <template v-else>
-          <div class="rounded-xl border border-slate-200 bg-white p-4" :class="{ 'opacity-50': generating }">
-            <p class="mb-2 text-sm text-slate-500">{{ t('audience.who') }}</p>
-            <RuleTree v-if="rule" :line="rule" />
-            <details class="mt-3 text-xs text-slate-500">
-              <summary class="cursor-pointer">{{ t('audience.json') }}</summary>
-              <pre class="mt-2 overflow-x-auto rounded bg-slate-50 p-3">{{ JSON.stringify(campaign.segment_rule, null, 2) }}</pre>
-            </details>
+        <div v-else class="grid gap-5 lg:grid-cols-12" :class="{ 'opacity-50': generating }">
+          <div class="space-y-4 lg:col-span-5">
+            <div class="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+              <p class="mb-2 text-xs font-semibold tracking-wide text-slate-500 uppercase">{{ t('audience.who') }}</p>
+              <RuleTree v-if="rule" :line="rule" />
+              <details class="mt-3 text-xs text-slate-500">
+                <summary class="cursor-pointer hover:text-slate-700">{{ t('audience.json') }}</summary>
+                <pre class="mt-2 overflow-x-auto rounded-lg bg-white p-3 font-mono ring-1 ring-slate-200">{{ JSON.stringify(campaign.segment_rule, null, 2) }}</pre>
+              </details>
+            </div>
+            <AudienceCounts v-if="campaign.audience" :audience="campaign.audience" :channels="campaign.channels" />
           </div>
-          <AudienceCounts v-if="campaign.audience" :audience="campaign.audience" :channels="campaign.channels" />
           <AudiencePeople
             v-if="campaign.audience"
+            class="lg:col-span-7"
             :campaign-id="campaign.id"
             :channels="campaign.channels"
             :matched="campaign.audience.matched"
@@ -188,8 +225,8 @@ async function regenerate() {
             :selected="previewPerson"
             @select="previewPerson = $event"
           />
-        </template>
-      </section>
+        </div>
+      </SectionShell>
 
       <ContentSection
         v-if="campaign.segment_rule"

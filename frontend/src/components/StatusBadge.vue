@@ -17,7 +17,11 @@ const colors: Record<CampaignStatus, string> = {
 </script>
 
 <template>
-  <span class="inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium" :class="colors[status]">
+  <span
+    class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ring-current/15 ring-inset"
+    :class="colors[status]"
+  >
+    <span class="size-1.5 rounded-full bg-current" :class="{ 'animate-pulse': status === 'sending' }" aria-hidden="true" />
     {{ statusLabel(status) }}
   </span>
 </template>

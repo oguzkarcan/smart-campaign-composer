@@ -35,30 +35,56 @@ const stateDot: Record<ApiState, string> = { checking: 'bg-slate-300', ok: 'bg-e
 
 <template>
   <div class="min-h-screen">
-    <header class="border-b border-slate-200 bg-white">
-      <div class="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3">
-        <nav class="flex items-center gap-6">
-          <RouterLink to="/" class="font-semibold tracking-tight whitespace-nowrap">{{ t('app.title') }}</RouterLink>
+    <header class="sticky top-0 z-30 border-b border-slate-200/80 bg-white/90 backdrop-blur-md">
+      <div class="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-2.5">
+        <nav class="flex min-w-0 items-center gap-6">
+          <RouterLink to="/" class="group flex min-w-0 items-center gap-3">
+            <span
+              class="relative flex size-9 shrink-0 items-center justify-center rounded-xl bg-linear-to-br from-[#4f46e5] to-[#7c3aed] shadow-sm ring-1 ring-[#4f46e5]/30"
+              aria-hidden="true"
+            >
+              <!-- A four-point star with two companions: Sirius and its constellation. -->
+              <svg viewBox="0 0 24 24" class="size-5 text-[#fff]">
+                <path d="M12 3.5l1.9 5.6 5.6 1.9-5.6 1.9L12 18.5l-1.9-5.6L4.5 11l5.6-1.9z" fill="currentColor" />
+                <circle cx="19" cy="4.5" r="1.3" fill="currentColor" opacity=".85" />
+                <circle cx="5" cy="19" r="1" fill="currentColor" opacity=".7" />
+                <path d="M19 4.5L14.5 8M5 19l4-3.6" stroke="currentColor" stroke-width=".8" opacity=".5" />
+              </svg>
+            </span>
+            <span class="min-w-0 leading-tight">
+              <span class="flex items-center gap-2">
+                <span class="text-[15px] font-bold tracking-tight whitespace-nowrap text-slate-900">{{ t('app.title') }}</span>
+                <span
+                  class="hidden rounded-md border border-indigo-200 bg-indigo-50 px-1.5 py-px text-[10px] font-bold tracking-[0.12em] text-indigo-700 sm:inline"
+                >
+                  INSIDER ONE
+                </span>
+              </span>
+              <span class="hidden truncate text-xs text-slate-500 sm:block">{{ t('app.subtitle') }}</span>
+            </span>
+          </RouterLink>
           <!-- On phones the pages' own buttons and back links do the navigation. -->
-          <RouterLink
-            to="/"
-            class="hidden text-sm text-slate-600 hover:text-slate-900 sm:inline"
-            exact-active-class="!text-indigo-600 font-medium"
-          >
-            {{ t('nav.campaigns') }}
-          </RouterLink>
-          <RouterLink
-            to="/new"
-            class="hidden text-sm text-slate-600 hover:text-slate-900 sm:inline"
-            active-class="!text-indigo-600 font-medium"
-          >
-            {{ t('nav.new') }}
-          </RouterLink>
+          <div class="hidden items-center gap-1 rounded-xl bg-slate-100/80 p-1 text-sm md:flex">
+            <RouterLink
+              to="/"
+              class="rounded-lg px-3 py-1 font-medium text-slate-600 hover:text-slate-900"
+              exact-active-class="bg-white !text-slate-900 shadow-xs"
+            >
+              {{ t('nav.campaigns') }}
+            </RouterLink>
+            <RouterLink
+              to="/new"
+              class="rounded-lg px-3 py-1 font-medium text-slate-600 hover:text-slate-900"
+              active-class="bg-white !text-slate-900 shadow-xs"
+            >
+              {{ t('nav.new') }}
+            </RouterLink>
+          </div>
         </nav>
-        <div class="flex shrink-0 items-center gap-3">
+        <div class="flex shrink-0 items-center gap-2.5 sm:gap-3">
           <span
             v-if="llm"
-            class="flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium"
+            class="flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold"
             :class="
               llm.llm_provider === 'claude'
                 ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
@@ -73,26 +99,23 @@ const stateDot: Record<ApiState, string> = { checking: 'bg-slate-300', ok: 'bg-e
             </template>
             <template v-else>{{ t('llm.mock') }}</template>
           </span>
-          <span class="flex items-center gap-2 text-sm text-slate-500" role="status" :title="t(stateKeys[apiState])">
-            <span class="size-2 rounded-full" :class="stateDot[apiState]" />
-            <span class="sr-only md:not-sr-only">{{ t(stateKeys[apiState]) }}</span>
+          <span class="flex items-center gap-1.5 text-xs font-medium text-slate-500" role="status" :title="t(stateKeys[apiState])">
+            <span class="size-2 rounded-full ring-2 ring-white" :class="stateDot[apiState]" />
+            <span class="sr-only lg:not-sr-only">{{ t(stateKeys[apiState]) }}</span>
           </span>
           <div
             role="group"
             :aria-label="t('theme.label')"
-            class="flex overflow-hidden rounded-lg border border-slate-300 text-xs font-semibold"
+            class="flex rounded-lg bg-slate-100 p-0.5 text-xs font-semibold"
           >
             <button
-              v-for="(th, i) in THEMES"
+              v-for="th in THEMES"
               :key="th"
               type="button"
               :aria-pressed="theme === th"
               :title="t(`theme.${th}`)"
-              class="flex items-center gap-1 px-2.5 py-1"
-              :class="[
-                theme === th ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50',
-                { 'border-l border-slate-300': i > 0 },
-              ]"
+              class="flex items-center gap-1 rounded-md px-2.5 py-1"
+              :class="theme === th ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-800'"
               @click="setTheme(th)"
             >
               <span aria-hidden="true">{{ th === 'light' ? '☀' : '☾' }}</span>
@@ -102,19 +125,16 @@ const stateDot: Record<ApiState, string> = { checking: 'bg-slate-300', ok: 'bg-e
           <div
             role="group"
             :aria-label="t('nav.uiLanguage')"
-            class="flex overflow-hidden rounded-lg border border-slate-300 text-xs font-semibold"
+            class="flex rounded-lg bg-slate-100 p-0.5 text-xs font-semibold"
           >
             <button
-              v-for="(l, i) in LOCALES"
+              v-for="l in LOCALES"
               :key="l"
               type="button"
               :aria-pressed="locale === l"
               :lang="l"
-              class="px-2.5 py-1"
-              :class="[
-                locale === l ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50',
-                { 'border-l border-slate-300': i > 0 },
-              ]"
+              class="rounded-md px-2.5 py-1"
+              :class="locale === l ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-800'"
               @click="setLocale(l)"
             >
               {{ l.toUpperCase() }}
@@ -124,12 +144,12 @@ const stateDot: Record<ApiState, string> = { checking: 'bg-slate-300', ok: 'bg-e
       </div>
     </header>
     <div v-if="apiState === 'down'" class="border-b border-rose-200 bg-rose-50 text-sm text-rose-900" role="alert">
-      <div class="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-2 px-4 py-2">
+      <div class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 px-4 py-2">
         <span>{{ t('api.unreachable') }}</span>
         <button type="button" class="font-medium underline" @click="checkHealth">{{ t('api.checkAgain') }}</button>
       </div>
     </div>
-    <main class="mx-auto max-w-5xl px-4 py-8">
+    <main class="mx-auto max-w-6xl px-4 py-8">
       <RouterView />
     </main>
   </div>
