@@ -108,15 +108,20 @@ cd frontend && npm install && npm run dev   # http://localhost:3000
     placeholders; consent is applied outside the rule, so an `any` (OR) rule
     cannot bypass it.
   - *Content:* allowed variables only, every limit inclusive and counted in
-    characters (not bytes) on the worst case after expansion.
+    characters (not bytes) on the worst case after expansion; content per
+    language (generated, edited and approved with that language's lengths,
+    all languages or nothing).
+  - *Scheduling:* `send_at` must be in the future and within 30 days; a
+    scheduled approval queues the same messages and waits as `scheduled`.
   - *LLM:* validate-and-repair loop (success, repair, failure after 2
     repairs, every attempt recorded), the Claude client against a fake server
     (streaming, refusal, truncation, overload retries), the mock's answers.
   - *Delivery:* provider response classes and `Retry-After`, backoff and the
     5-attempt policy, the worker's rate limit (minimum pace, no window over
     the limit, independent per channel), retries, graceful shutdown.
-  - *HTTP API* and the *frontend* (type check, rule rendering, content
-    validation mirror, SSE reader, progress maths).
+  - *HTTP API* and the *frontend* (type check, rule rendering in English and
+    Turkish, content validation mirror, SSE reader, progress maths, language
+    tabs, schedule input, step bar, translations).
 - **Integration (`make test-integration`):** compiled rules match a
   hand-written reference query on the seeded data; approval queues only
   consented recipients on the campaign's channels, exactly once, even under
@@ -252,8 +257,9 @@ backend/
   migrations/      SQL schema (golang-migrate)
 frontend/          Vue 3 + Vite + TypeScript + Tailwind app
   src/api/         typed API client, SSE reader
-  src/lib/         segment rule → readable text, content validation mirror
-  src/components/  audience, editors, dashboard
+  src/lib/         i18n (TR/EN), segment rule → readable text, content
+                   validation mirror, schedule, steps, progress
+  src/components/  audience, step bar, editors and previews, dashboard
   src/views/       pages (campaign list, new campaign, campaign)
 ai-sessions/       Claude Code session exports (paths and personal data scrubbed)
 ```
@@ -265,6 +271,11 @@ audience counts → streamed content with validation and repair → edits →
 approval → rate-limited, retried, idempotent delivery → live dashboard, plus
 `/health`, `/metrics`, a mock LLM and a mock provider, all from one
 `docker compose up`.
+
+Beyond the core scope (Day 6): scheduled sending (`send_at` on approval),
+messages in each recipient's language (Turkish / English, generated,
+edited and sent per language), and a marketer-oriented UI with a `TR | EN`
+interface switch, a step bar and SMS / email previews.
 
 ### Unfinished scope and known gaps
 

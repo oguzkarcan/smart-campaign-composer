@@ -132,6 +132,6 @@ segment DSL + validator + SQL compiler + consent.
   `Audience → Messages → Delivery`, realistic SMS bubble and email card
   previews, raw JSON tucked into collapsible details); and a concise design note
   for hash-based A/B variants in `README.md`'s unfinished scope.
-- [ ] 4. Final verification (`make vet`, `make test`, `make test-integration`),
+- [x] 4. Final verification (`make vet`, `make test`, `make test-integration`),
   update `README.md` and `DECISIONS.md`, and export + scrub
   `ai-sessions/06-day6-scheduling-multilang-and-ux.md`.

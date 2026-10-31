@@ -52,7 +52,7 @@ listed in the [README](README.md#unfinished-scope-and-known-gaps).
   meanwhile, so the trail matches what was actually spent.
 - **Streamed text carries the attempt number,** so the UI can reset its preview
   when a repair round starts instead of showing two answers glued together.
-- **Prompts are versioned** (`segment-v1`, `content-v1`); the version is stored
+- **Prompts are versioned** (`segment-v1`, `content-v2`); the version is stored
   with every attempt so quality can be compared across prompt changes.
 - **The brief is treated as data.** It is wrapped in `<brief>` tags and the
   system prompt says to ignore instructions inside it. This only lowers the
@@ -145,7 +145,8 @@ listed in the [README](README.md#unfinished-scope-and-known-gaps).
 - **Allowed variables:** `{{first_name}}`, `{{city}}`. Unknown variables are a
   validation error (which triggers a repair attempt).
 - **Length limits are checked on the worst case after expansion:** each variable
-  is replaced by the longest value in the target audience. SMS ≤ 160 characters,
+  is replaced by the longest value among the target audience's readers of that
+  language. SMS ≤ 160 characters,
   email subject ≤ 80, email body ≤ 5,000. `first_name` and `city` are `NOT NULL`,
   so there is no fallback text. A variable whose maximum was not measured (or is
   0, e.g. an empty audience) counts as 40 characters, so a missing measurement
@@ -170,7 +171,7 @@ listed in the [README](README.md#unfinished-scope-and-known-gaps).
 ## Campaign flow
 
 - **Statuses:** `draft` → `audience_ready` (segment generated and counted) →
-  `content_ready` → `approved` → `sending` → `completed`/`failed`. A failed
+  `content_ready` → (`scheduled` →) `sending` → `completed`/`failed`. A failed
   generation keeps the status and stores `last_error`, so the marketer can retry;
   a later success clears it.
 - **Channels are chosen by the marketer, never by the LLM,** and are validated
@@ -181,15 +182,16 @@ listed in the [README](README.md#unfinished-scope-and-known-gaps).
   campaign's channels, content generation is refused with an explanation
   instead of writing messages nobody will receive.
 - **Variable lengths are measured on the reachable audience:** users the rule
-  matches who consented to at least one campaign channel. Measuring over both
-  channels at once is slightly conservative for a single channel, and keeps one
-  set of numbers per campaign. Edits are re-measured against the audience as it
+  matches who consented to at least one campaign channel, per language.
+  Measuring over both channels at once is slightly conservative for a single
+  channel, and keeps one set of numbers per language. Edits are re-measured against the audience as it
   is at edit time, and approval measures again.
 - **Audience counts are a snapshot** (`audience_count`, `audience_sms`,
-  `audience_email`) taken when the segment is generated. Event windows are
+  `audience_email`, and per language `audience_languages`) taken when the
+  segment is generated. Event windows are
   relative to now, so the real recipient list is computed again at approval.
-- **Edits replace one channel at a time** and are validated together with the
-  other channels' current content, through the same validator as generated
+- **Edits replace one language's message for one channel at a time** and are
+  validated together with that language's other channels, through the same validator as generated
   content. A marketer edit sets `human_edited` and bumps `version`; regenerating
   resets `human_edited`.
 - **Approval always wins a race.** Every pre-approval write is guarded in SQL
@@ -205,12 +207,13 @@ listed in the [README](README.md#unfinished-scope-and-known-gaps).
   (`409`) if any version changed, so an edit that lands in between is never
   sent unchecked.
 - **Approve and enqueue are one transaction,** and the campaign goes straight
-  to `sending` with `approved_at` set. A campaign is never `sending` without
+  to `sending` (or `scheduled`, see below) with `approved_at` set. A campaign is never `sending` without
   its messages, and messages are never queued for content that can still
   change. `approved` stays in the schema but is not used as a resting state.
 - **Recipients are computed at approval** with `INSERT … SELECT` per channel
   from `segment.RecipientsSQL` (rule AND that channel's consent, only the
-  campaign's channels), `ON CONFLICT DO NOTHING` on
+  campaign's channels, only languages that have content; each message keeps
+  the recipient's language), `ON CONFLICT DO NOTHING` on
   `UNIQUE(campaign_id, user_id, channel)`. The rows are created in Postgres,
   not loaded into Go. If nobody is reachable any more, approval is refused
   instead of starting an empty campaign.
@@ -405,9 +408,11 @@ listed in the [README](README.md#unfinished-scope-and-known-gaps).
   and its problems are shown under the matching field. Unlike the server, the
   browser keeps measuring after a broken variable, so the marketer sees every
   problem at once.
-- **The raw model output is streamed as-is** while content is generated, and
+- **The raw model output is streamed as-is** while content is generated (in a
+  collapsed "technical details" block under a progress card since Day 6), and
   replaced by the validated editors when the `done` event arrives. A new
-  attempt number clears the preview and says a repair round is running.
+  language or attempt number clears the preview and says which language is
+  being written or repaired.
   Partial-JSON parsing to show nicer partial messages was not worth it.
 - **Approval is blocked while an editor has unsaved or invalid changes,** so
   what is approved is exactly what the server has stored and validated; the
@@ -593,8 +598,8 @@ listed in the [README](README.md#unfinished-scope-and-known-gaps).
   to cart in the last 30 days but did not purchase" need event times; the
   segment compiler emits `EXISTS` / `NOT EXISTS` subqueries served by an index on
   `(user_id, type, occurred_at)`.
-- **`campaign_contents` holds only the current content per channel**
-  (`UNIQUE(campaign_id, channel)`, `version` counter); every generated version is
+- **`campaign_contents` holds only the current content per language and
+  channel** (`UNIQUE(campaign_id, language, channel)`, `version` counter); every generated version is
   kept in `llm_generations`.
 - **Messages are not stored rendered.** Content is locked after approval and
   rendering is deterministic, so the worker renders at send time and retries send
