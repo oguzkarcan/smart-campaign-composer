@@ -45,6 +45,23 @@ func TestContentRequest(t *testing.T) {
 	}
 }
 
+// The content prompt names the recipients' language, which overrides the
+// brief's; the request carries it so attempts are recorded with it.
+func TestContentRequestLanguage(t *testing.T) {
+	for lang, name := range map[string]string{"tr": "Turkish", "en": "English"} {
+		req := ContentRequest(ContentInput{Brief: "Sepet hatırlatması", Channels: []string{"sms"}, Language: lang})
+		if !strings.Contains(req.System, "Write every message in "+name) || req.Language != lang {
+			t.Errorf("%s: language %q, system prompt %q", lang, req.Language, req.System)
+		}
+		if req.PromptVersion != "content-v2" {
+			t.Errorf("prompt version %q", req.PromptVersion)
+		}
+	}
+	if req := ContentRequest(ContentInput{Brief: "x", Channels: []string{"sms"}}); !strings.Contains(req.System, "language of the brief") {
+		t.Errorf("no language: %q", req.System)
+	}
+}
+
 func TestRepairPrompt(t *testing.T) {
 	err := content.ValidationError{{Path: "sms.body", Message: "too long"}, {Message: "invalid JSON"}}
 	got := RepairPrompt(err)

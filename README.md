@@ -53,11 +53,13 @@ CLAUDE_MODEL=claude-sonnet-5-5      # default
    click away on the form.
 2. **Audience:** the brief becomes a segment rule, shown as readable
    conditions ("Added to cart in the last 30 days", raw JSON on demand), with
-   how many matched users consented to each channel. Regenerate it if it is
-   not what you meant.
-3. **Messages:** generate content and watch it stream in. Edit any message;
-   counters show its worst-case length after `{{first_name}}` / `{{city}}`
-   are filled in with the longest values in this audience, and problems are
+   how many matched users consented to each channel, in total and per
+   language (Turkish / English). Regenerate it if it is not what you meant.
+3. **Messages:** generate content and watch it stream in, once per language
+   in the audience: Turkish readers get Turkish messages, English readers
+   English ones, each in its own tab. Edit any message; counters show its
+   worst-case length after `{{first_name}}` / `{{city}}` are filled in with
+   the longest values among that language's recipients, and problems are
    shown inline. If Claude's answer is invalid, it is asked to repair it (up to
    2 times) and the screen shows the repair round.
 4. **Approve:** choose *Send now* or *Schedule for later* (up to 30 days
@@ -119,7 +121,9 @@ cd frontend && npm install && npm run dev   # http://localhost:3000
   consented recipients on the campaign's channels, exactly once, even under
   concurrent approvals; queue claiming, leases and stale results; a
   scheduled campaign is not claimed, started or closed before its time, and
-  starts sending once due.
+  starts sending once due; audience counts and variable lengths per
+  language, every queued message keeps its recipient's language, and the
+  worker sends the content of that language.
 - **End to end:** the real worker, Postgres queue and HTTP client against the
   mock provider with its 100/s limit and injected 429s, 5xx and lost
   responses, plus one recipient rejected with a 400. Every message ends sent
@@ -183,8 +187,8 @@ All bodies are JSON. Errors are `{"error": "...", "problems": [{"path", "message
 | `POST /campaigns`                      | `{"brief", "channels": ["sms", "email"]}` → creates the campaign and generates its segment. `201` even if generation fails: the campaign stays `draft` with `last_error`. |
 | `GET /campaigns/{id}`                  | Campaign with segment rule, audience counts, content, `variable_lengths` and `limits`. |
 | `POST /campaigns/{id}/segment`         | Regenerates the segment (discards content). |
-| `POST /campaigns/{id}/content`         | Generates content, streamed as SSE: `delta` `{"attempt", "text"}`, then `done` (campaign) or `error`. A higher `attempt` means a repair round started. Errors before streaming starts are plain JSON. |
-| `PUT /campaigns/{id}/content/{channel}`| `{"subject", "body"}` → marketer edit, validated like generated content (`422` with `problems`). |
+| `POST /campaigns/{id}/content`         | Generates content for every language in the reachable audience (`tr`, `en`), one after another, streamed as SSE: `delta` `{"language", "attempt", "text"}`, then `done` (campaign) or `error`. A new language or a higher `attempt` (a repair round) starts a new answer. Saved only if every language succeeds; problems carry the language (`en.sms.body`). Errors before streaming starts are plain JSON. |
+| `PUT /campaigns/{id}/content/{language}/{channel}`| `{"subject", "body"}` → marketer edit of one language's message, validated like generated content with that language's lengths (`422` with `problems`). |
 | `POST /campaigns/{id}/approve`         | Optional body `{"send_at": "<RFC 3339>"}`. Re-validates the content against today's audience (`422` if it no longer fits), locks it, queues one message per consented recipient and channel, status → `sending`, or `scheduled` until `send_at` (`scheduled_at` on the campaign). `400` if `send_at` is not in the future or more than 30 days ahead; `409` if not `content_ready`, edited meanwhile, or nobody is reachable. |
 | `GET /campaigns`                       | Campaigns newest first with message counts. `?limit=` (1–200, default 50), `?before=<id>` for the next page. |
 | `GET /campaigns/{id}/progress`         | Delivery progress: message counts by status (`totals` and per channel), top failure reasons, `done`. |
@@ -196,9 +200,11 @@ Status codes: `400` bad input, `404` unknown campaign, `409` not allowed in the
 campaign's status (e.g. after approval), `422` invalid content or model output,
 `502` the LLM could not be reached.
 
-**Live length counter:** `variable_lengths` (e.g. `{"first_name": 15, "city": 9}`)
-is what each variable counts as in the server's worst-case check, measured on
-the campaign's reachable audience. A template's worst-case length is its length
+**Live length counter:** `variable_lengths` (e.g.
+`{"tr": {"first_name": 15, "city": 9}, "en": {...}}`) is, per language, what
+each variable counts as in the server's worst-case check, measured on the
+campaign's reachable audience who read that language; `languages` lists the
+languages the campaign has or needs content for. A template's worst-case length is its length
 with each `{{variable}}` replaced by that many characters; compare it with
 `limits` (`{"sms.body": 160, "email.subject": 80, "email.body": 5000}`).
 
@@ -265,6 +271,9 @@ approval → rate-limited, retried, idempotent delivery → live dashboard, plus
   sent.** A user who withdraws consent while a campaign is sending still
   receives its message. Re-checking consent in the worker's claim query
   would close this.
+- **Two message languages, `tr` and `en`,** fixed in code and in the
+  schema. A third language needs a `CHECK` change, a label and a mock
+  template; the flow itself is generic.
 - **SMS length is 160 characters, not 160 GSM-7 units.** Turkish letters
   force UCS-2, where one SMS segment holds 70 characters. We follow the
   case's rule; a real sender would count segments.

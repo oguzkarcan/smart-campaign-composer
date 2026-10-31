@@ -18,6 +18,9 @@ const (
 	ChannelSMS   = "sms"
 	ChannelEmail = "email"
 
+	LanguageTR = "tr"
+	LanguageEN = "en"
+
 	MaxSMSLength       = 160
 	MaxSubjectLength   = 80
 	MaxEmailBodyLength = 5000
@@ -30,6 +33,10 @@ var Limits = map[string]int{
 	"email.subject": MaxSubjectLength,
 	"email.body":    MaxEmailBodyLength,
 }
+
+// Languages are the recipient languages content is written in, in display
+// order. Each campaign has content for the ones its audience contains.
+var Languages = []string{LanguageTR, LanguageEN}
 
 // Content holds one message per channel. Only the campaign's channels may be
 // set; the others must be nil.
@@ -68,6 +75,17 @@ func (e ValidationError) Error() string {
 		}
 	}
 	return "invalid content: " + strings.Join(parts, "; ")
+}
+
+// Prefix returns the problems with paths under prefix ("en" turns "sms.body"
+// into "en.sms.body"), for errors that cover several languages.
+func (e ValidationError) Prefix(prefix string) ValidationError {
+	out := make(ValidationError, len(e))
+	for i, p := range e {
+		p.Path = strings.TrimSuffix(prefix+"."+p.Path, ".")
+		out[i] = p
+	}
+	return out
 }
 
 // Parse strictly decodes content, validates it for the given channels and

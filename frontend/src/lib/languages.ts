@@ -1,0 +1,28 @@
+import type { Campaign, Language } from '@/api/types'
+import { LANGUAGES } from '@/api/types'
+
+export interface LanguageTab {
+  language: Language
+  // Messages this language's readers get: per campaign channel, the
+  // consented readers in the audience snapshot.
+  recipients: number
+  // Whether messages exist yet; a language can be needed before it has any
+  // (the audience gained readers after the messages were written).
+  hasContent: boolean
+}
+
+// languageTabs lists the languages a campaign has or needs messages for, in
+// display order. Older campaigns without a language list fall back to the
+// languages their content is in.
+export function languageTabs(c: Campaign): LanguageTab[] {
+  const withContent = new Set((c.contents ?? []).map((m) => m.language))
+  const listed = c.languages ?? LANGUAGES.filter((l) => withContent.has(l))
+  return LANGUAGES.filter((l) => listed.includes(l)).map((language) => {
+    const counts = c.audience?.languages?.[language]
+    return {
+      language,
+      recipients: counts ? c.channels.reduce((n, ch) => n + counts[ch], 0) : 0,
+      hasContent: withContent.has(language),
+    }
+  })
+}

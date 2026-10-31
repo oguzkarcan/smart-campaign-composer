@@ -187,11 +187,16 @@ func containsAny(s string, subs ...string) bool {
 var turkishHints = []string{"kullanici", "musteri", "sepet", "satin", "gun", "icin", "olan", "kampanya"}
 
 func mockContent(in ContentInput) content.Content {
+	// The requested language wins; without one, the brief's language or the
+	// rule's language filter decides.
 	turkish := strings.ContainsAny(in.Brief, "çğıöşüÇĞİÖŞÜ") || containsAny(segment.Fold(in.Brief), turkishHints...)
 	for _, c := range in.Rule.Conditions {
 		if c.Field == "language" && c.Op == segment.OpEq && len(c.Value) == 1 {
 			turkish = c.Value[0] == "tr"
 		}
+	}
+	if in.Language != "" {
+		turkish = in.Language == content.LanguageTR
 	}
 	cart := false
 	for _, c := range in.Rule.Conditions {

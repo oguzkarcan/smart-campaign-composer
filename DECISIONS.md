@@ -233,6 +233,36 @@ listed in the [README](README.md#unfinished-scope-and-known-gaps).
 - **Times are absolute.** The API takes RFC 3339 with an offset; the UI's
   date-time picker is in the browser's local time and is converted to UTC
   before sending, and shows the time back in local time.
+- **Content per recipient language.** Each user has a `language` (`tr`,
+  `en`); a campaign gets one message set per language in its reachable
+  audience, and each recipient receives their own language. Which languages
+  are needed is measured, not guessed from the brief: the audience is
+  counted per language, and the variable lengths are measured per language
+  (`MaxLengths` is grouped by `u.language`), so English messages are checked
+  against English readers' names, not the longest Turkish one.
+- **One model call per language, not one call for all.** Each call reuses
+  the same prompt, validator and repair loop; a language's lengths and its
+  repair rounds stay separate, so a too-long English SMS does not make
+  Claude rewrite the Turkish one. The prompt (`content-v2`) names the target
+  language and says the brief may be in another one. Languages are written
+  one after another and streamed with their language; content is saved only
+  if every language succeeds, so a campaign never has half its languages.
+  Every attempt is stored with its `language`. Two calls cost more than one
+  combined answer; for two short message sets the simpler loop wins.
+- **Every message keeps its recipient's language** (`messages.language`,
+  set at approval like the recipient list). The worker joins content on
+  `(campaign, channel, language)`. Enqueueing only selects recipients whose
+  language has content, so a message can never be claimed with nothing to
+  send; the service checks first and refuses approval (`409`) with a clear
+  message if today's audience includes a language without messages
+  (readers joined after the content was written). Approval problems carry
+  the language in the path (`en.sms.body`).
+- **Edits target one language and channel**
+  (`PUT /campaigns/{id}/content/{language}/{channel}`) and are validated
+  with that language's lengths.
+- **Migration keeps old campaigns working:** content written before
+  per-language content was one message for everybody, so it is copied to
+  both languages, and queued messages get their recipient's language.
 - **The service depends on a small `Store` interface.** Flow rules are
   unit-tested with an in-memory store (`make test`, no database); the Postgres
   store is covered by integration tests against the seeded database.
@@ -415,6 +445,13 @@ listed in the [README](README.md#unfinished-scope-and-known-gaps).
   page may have been open a while. A scheduled campaign shows the dashboard
   with a countdown banner; the list keeps polling scheduled campaigns so
   their row turns to *Sending* on time.
+- **Language tabs in the message editor** (Turkish / English, with how
+  many messages each language sends and a dot for unsaved changes,
+  problems or missing messages). Every language's editors stay mounted and
+  only the active tab is shown, so drafts survive switching tabs; approval
+  waits until every language is saved and valid. While generating, the
+  preview follows the language being written. The audience view shows a
+  per-language table next to the channel counts.
 - **Unsaved message edits are guarded** on route changes and on closing the
   tab, since edits only reach the server on Save.
 - **Frontend checks are part of `make test`:** `vue-tsc` type checking and

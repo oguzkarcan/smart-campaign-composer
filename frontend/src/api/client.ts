@@ -4,6 +4,7 @@ import type {
   CampaignSummary,
   Channel,
   ContentEdit,
+  Language,
   ErrorBody,
   Problem,
   Progress,
@@ -111,8 +112,8 @@ export function generateSegment(id: number): Promise<Campaign> {
   return request('POST', `/campaigns/${id}/segment`, { timeoutMs: LLM_TIMEOUT_MS })
 }
 
-export function editContent(id: number, channel: Channel, edit: ContentEdit): Promise<Campaign> {
-  return request('PUT', `/campaigns/${id}/content/${channel}`, { body: edit })
+export function editContent(id: number, language: Language, channel: Channel, edit: ContentEdit): Promise<Campaign> {
+  return request('PUT', `/campaigns/${id}/content/${language}/${channel}`, { body: edit })
 }
 
 // approveCampaign sends now, or at sendAt (an ISO time) if given.
@@ -125,9 +126,10 @@ export function getProgress(id: number, signal?: AbortSignal): Promise<Progress>
 }
 
 export interface ContentStreamHandlers {
-  // onDelta receives streamed model output. A higher attempt number starts a
-  // repair round, so the preview should be cleared.
-  onDelta?: (attempt: number, text: string) => void
+  // onDelta receives streamed model output. Languages are written one after
+  // another; a new language or a higher attempt number (a repair round)
+  // starts a new answer, so the preview should be cleared.
+  onDelta?: (language: Language, attempt: number, text: string) => void
   signal?: AbortSignal
 }
 
@@ -147,8 +149,8 @@ export async function generateContent(id: number, handlers: ContentStreamHandler
   for await (const msg of readSSE(res.body)) {
     switch (msg.event) {
       case 'delta': {
-        const d = JSON.parse(msg.data) as { attempt: number; text: string }
-        handlers.onDelta?.(d.attempt, d.text)
+        const d = JSON.parse(msg.data) as { language: Language; attempt: number; text: string }
+        handlers.onDelta?.(d.language, d.attempt, d.text)
         break
       }
       case 'done':

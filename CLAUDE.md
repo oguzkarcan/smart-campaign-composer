@@ -119,7 +119,7 @@ segment DSL + validator + SQL compiler + consent.
   `scheduled_at` on campaigns, `scheduled` status that transitions to `sending`
   when due (without closing early), UI option to "Send now" or "Schedule for
   later", and unit/integration tests.
-- [ ] 2. Content by user's language (`tr`/`en`): generate, validate, edit, and
+- [x] 2. Content by user's language (`tr`/`en`): generate, validate, edit, and
   store content for each language present in the campaign's reachable audience
   (`tr` and/or `en`), measure worst-case variable lengths per language, have the
   worker render and send the message matching each recipient's

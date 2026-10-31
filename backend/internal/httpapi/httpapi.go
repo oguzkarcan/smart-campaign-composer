@@ -51,7 +51,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /campaigns/{id}", s.handleGetCampaign)
 	mux.HandleFunc("POST /campaigns/{id}/segment", s.handleGenerateSegment)
 	mux.HandleFunc("POST /campaigns/{id}/content", s.handleGenerateContent)
-	mux.HandleFunc("PUT /campaigns/{id}/content/{channel}", s.handleEditContent)
+	mux.HandleFunc("PUT /campaigns/{id}/content/{language}/{channel}", s.handleEditContent)
 	mux.HandleFunc("POST /campaigns/{id}/approve", s.handleApprove)
 	mux.HandleFunc("GET /campaigns/{id}/progress", s.handleProgress)
 	mux.HandleFunc("GET /campaigns/{id}/events", s.handleEvents)

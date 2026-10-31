@@ -63,6 +63,7 @@ type Job struct {
 	MessageID  int64
 	CampaignID int64
 	Channel    string // content.ChannelSMS or content.ChannelEmail
+	Language   string // the recipient's language at approval; Subject and Body are in it
 	Attempt    int    // 1-based; the queue counts it when the job is claimed
 
 	Email     string

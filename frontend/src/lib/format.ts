@@ -1,6 +1,8 @@
-import type { CampaignStatus, Channel } from '@/api/types'
+import type { CampaignStatus, Channel, Language } from '@/api/types'
 
 export const channelLabels: Record<Channel, string> = { sms: 'SMS', email: 'Email' }
+
+export const languageLabels: Record<Language, string> = { tr: 'Turkish', en: 'English' }
 
 export const statusLabels: Record<CampaignStatus, string> = {
   draft: 'Draft',

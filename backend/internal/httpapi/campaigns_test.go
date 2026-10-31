@@ -91,7 +91,7 @@ func TestCreateCampaign(t *testing.T) {
 	}
 	c := decodeBody[campaign.Campaign](t, w)
 	if c.Status != campaign.StatusAudienceReady || c.Audience == nil || c.Rule == nil ||
-		c.VariableLengths["first_name"] == 0 || c.Limits["sms.body"] != 160 {
+		c.VariableLengths["tr"]["first_name"] == 0 || c.Limits["sms.body"] != 160 {
 		t.Fatalf("campaign = %+v", c)
 	}
 
@@ -234,13 +234,13 @@ func TestGenerateContentStreamsRepairsAndFailure(t *testing.T) {
 	}
 	for i, e := range events[:3] {
 		var d deltaEvent
-		if err := json.Unmarshal([]byte(e.data), &d); err != nil || e.name != "delta" || d.Attempt != i+1 {
+		if err := json.Unmarshal([]byte(e.data), &d); err != nil || e.name != "delta" || d.Attempt != i+1 || d.Language != "tr" {
 			t.Fatalf("event %d = %+v, want delta of attempt %d", i, e, i+1)
 		}
 	}
 	var body errorResponse
 	if err := json.Unmarshal([]byte(events[3].data), &body); err != nil || events[3].name != "error" ||
-		body.Status != http.StatusUnprocessableEntity || len(body.Problems) != 1 || body.Problems[0].Path != "sms.body" {
+		body.Status != http.StatusUnprocessableEntity || len(body.Problems) != 1 || body.Problems[0].Path != "tr.sms.body" {
 		t.Fatalf("error event = %+v", events[3])
 	}
 }
@@ -250,7 +250,7 @@ func TestEditContent(t *testing.T) {
 	create(t, h, `["sms", "email"]`)
 	do(t, h, "POST", "/campaigns/1/content", "")
 
-	w := do(t, h, "PUT", "/campaigns/1/content/sms", `{"body": "{{ first_name }}, son gün!"}`)
+	w := do(t, h, "PUT", "/campaigns/1/content/tr/sms", `{"body": "{{ first_name }}, son gün!"}`)
 	c := decodeBody[campaign.Campaign](t, w)
 	if w.Code != http.StatusOK || c.Contents[0].Body != "{{first_name}}, son gün!" || !c.Contents[0].HumanEdited {
 		t.Fatalf("%d %+v", w.Code, c.Contents)
@@ -260,13 +260,14 @@ func TestEditContent(t *testing.T) {
 		path, body string
 		status     int
 	}{
-		{"/campaigns/1/content/sms", `{"body": "` + strings.Repeat("a", 161) + `"}`, http.StatusUnprocessableEntity},
-		{"/campaigns/1/content/sms", `{"body": "Hi {{phone}}"}`, http.StatusUnprocessableEntity},
-		{"/campaigns/1/content/email", `{"subject": "", "body": "b"}`, http.StatusUnprocessableEntity},
-		{"/campaigns/1/content/push", `{"body": "Hi"}`, http.StatusBadRequest},
-		{"/campaigns/1/content/sms", `{"body": "Hi", "human_edited": false}`, http.StatusBadRequest},
-		{"/campaigns/1/content/sms", `{"body": "Hi"}]`, http.StatusBadRequest},
-		{"/campaigns/9/content/sms", `{"body": "Hi"}`, http.StatusNotFound},
+		{"/campaigns/1/content/tr/sms", `{"body": "` + strings.Repeat("a", 161) + `"}`, http.StatusUnprocessableEntity},
+		{"/campaigns/1/content/tr/sms", `{"body": "Hi {{phone}}"}`, http.StatusUnprocessableEntity},
+		{"/campaigns/1/content/tr/email", `{"subject": "", "body": "b"}`, http.StatusUnprocessableEntity},
+		{"/campaigns/1/content/tr/push", `{"body": "Hi"}`, http.StatusBadRequest},
+		{"/campaigns/1/content/en/sms", `{"body": "Hi"}`, http.StatusBadRequest}, // no English messages
+		{"/campaigns/1/content/tr/sms", `{"body": "Hi", "human_edited": false}`, http.StatusBadRequest},
+		{"/campaigns/1/content/tr/sms", `{"body": "Hi"}]`, http.StatusBadRequest},
+		{"/campaigns/9/content/tr/sms", `{"body": "Hi"}`, http.StatusNotFound},
 	}
 	for _, tt := range tests {
 		w := do(t, h, "PUT", tt.path, tt.body)
@@ -286,7 +287,7 @@ func TestEditAfterApprovalConflicts(t *testing.T) {
 	do(t, h, "POST", "/campaigns/1/content", "")
 	store.SetStatus(1, campaign.StatusApproved)
 
-	if w := do(t, h, "PUT", "/campaigns/1/content/sms", `{"body": "Hi"}`); w.Code != http.StatusConflict {
+	if w := do(t, h, "PUT", "/campaigns/1/content/tr/sms", `{"body": "Hi"}`); w.Code != http.StatusConflict {
 		t.Fatalf("%d %s", w.Code, w.Body)
 	}
 }
@@ -358,10 +359,10 @@ func TestApproveRevalidates(t *testing.T) {
 	create(t, h, `["sms"]`)
 	do(t, h, "POST", "/campaigns/1/content", "")
 	body := strings.Repeat("a", 160-14) + "{{first_name}}"
-	if w := do(t, h, "PUT", "/campaigns/1/content/sms", `{"body": "`+body+`"}`); w.Code != http.StatusOK {
+	if w := do(t, h, "PUT", "/campaigns/1/content/tr/sms", `{"body": "`+body+`"}`); w.Code != http.StatusOK {
 		t.Fatalf("edit: %d %s", w.Code, w.Body)
 	}
-	store.Lens[content.VarFirstName] = 20 // a longer name joined the audience
+	store.Lens["tr"][content.VarFirstName] = 20 // a longer name joined the audience
 
 	w := do(t, h, "POST", "/campaigns/1/approve", "")
 	if w.Code != http.StatusUnprocessableEntity || len(decodeBody[errorResponse](t, w).Problems) == 0 {

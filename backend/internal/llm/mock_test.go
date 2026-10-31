@@ -116,6 +116,16 @@ func TestMockContentLanguage(t *testing.T) {
 	if got := sms("İngilizce konuşan müşteriler", english); !strings.Contains(got, "waiting") {
 		t.Errorf("language=en audience got %q", got)
 	}
+
+	// The requested language wins over the brief's, with the brief's offer.
+	brief := "Sepete ekleyip almayanlara %20 indirim"
+	cart := segment.Rule{Conditions: []segment.Condition{{Event: "cart_add", WithinDays: 30, Exists: new(true)}}}
+	for lang, want := range map[string]string{"en": "20% off", "tr": "%20 indirim"} {
+		c := mockContent(ContentInput{Brief: brief, Channels: []string{"sms"}, Rule: cart, Language: lang})
+		if !strings.Contains(c.SMS.Body, want) {
+			t.Errorf("%s: %q lacks %q", lang, c.SMS.Body, want)
+		}
+	}
 }
 
 func TestMockStreamsTheWholeAnswer(t *testing.T) {

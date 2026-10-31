@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, getCampaign, TIMED_OUT, UNREACHABLE } from './client'
+import { ApiError, editContent, generateContent, getCampaign, TIMED_OUT, UNREACHABLE } from './client'
 
 function stubFetch(impl: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>) {
   vi.stubGlobal('fetch', vi.fn(impl))
@@ -69,5 +69,30 @@ describe('api client errors', () => {
     const err = await pending
     expect(err).not.toBeInstanceOf(ApiError)
     expect((err as DOMException).name).toBe('AbortError')
+  })
+})
+
+describe('content endpoints', () => {
+  it('edits one language and channel', async () => {
+    let url = ''
+    stubFetch(async (input) => {
+      url = String(input)
+      return Response.json({ id: 1 })
+    })
+    await editContent(1, 'en', 'sms', { body: 'Hi' })
+    expect(url).toBe('/api/campaigns/1/content/en/sms')
+  })
+
+  it('passes the language of every streamed delta', async () => {
+    const sse = [
+      'event: delta\ndata: {"language":"tr","attempt":1,"text":"Mer"}\n\n',
+      'event: delta\ndata: {"language":"en","attempt":1,"text":"Hi"}\n\n',
+      'event: done\ndata: {"id":1}\n\n',
+    ].join('')
+    stubFetch(async () => new Response(sse, { headers: { 'Content-Type': 'text/event-stream' } }))
+    const deltas: string[] = []
+    const c = await generateContent(1, { onDelta: (lang, attempt, text) => deltas.push(`${lang}${attempt}:${text}`) })
+    expect(deltas).toEqual(['tr1:Mer', 'en1:Hi'])
+    expect(c.id).toBe(1)
   })
 })

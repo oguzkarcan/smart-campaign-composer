@@ -23,8 +23,11 @@ type MemStore struct {
 	campaigns map[int64]*campaign.Campaign
 	nextID    int64
 	Audience  segment.Audience
-	Lens      content.MaxLengths
-	attempts  map[int64]*llm.MemoryRecorder
+	// Lens are the variable lengths per language of the reachable audience;
+	// its keys are the languages content is written in. Turkish only by
+	// default.
+	Lens     campaign.LanguageLengths
+	attempts map[int64]*llm.MemoryRecorder
 	// Queued is how many messages approval enqueued per campaign: the
 	// audience snapshot's consented counts for the campaign's channels.
 	Queued map[int64]int
@@ -37,12 +40,13 @@ type MemStore struct {
 func NewMemStore() *MemStore {
 	return &MemStore{
 		campaigns: map[int64]*campaign.Campaign{},
-		Audience:  segment.Audience{Matched: 230, SMS: 120, Email: 160},
-		Lens:      content.MaxLengths{content.VarFirstName: 13, content.VarCity: 10},
-		attempts:  map[int64]*llm.MemoryRecorder{},
-		Queued:    map[int64]int{},
-		Messages:  map[int64]map[string]campaign.Counts{},
-		Failures:  map[int64][]campaign.FailureReason{},
+		Audience: segment.Audience{Matched: 230, SMS: 120, Email: 160,
+			Languages: map[string]segment.Counts{content.LanguageTR: {Matched: 230, SMS: 120, Email: 160}}},
+		Lens:     campaign.LanguageLengths{content.LanguageTR: {content.VarFirstName: 13, content.VarCity: 10}},
+		attempts: map[int64]*llm.MemoryRecorder{},
+		Queued:   map[int64]int{},
+		Messages: map[int64]map[string]campaign.Counts{},
+		Failures: map[int64][]campaign.FailureReason{},
 	}
 }
 
@@ -92,7 +96,7 @@ func (s *MemStore) SaveSegment(_ context.Context, id int64, r segment.Rule, a se
 	return nil
 }
 
-func (s *MemStore) SaveContent(_ context.Context, id int64, cc content.Content) error {
+func (s *MemStore) SaveContent(_ context.Context, id int64, all map[string]content.Content) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	c, err := s.guard(id, campaign.StatusAudienceReady, campaign.StatusContentReady)
@@ -104,17 +108,24 @@ func (s *MemStore) SaveContent(_ context.Context, id int64, cc content.Content) 
 		version = c.Contents[0].Version + 1
 	}
 	c.Contents = nil
-	if cc.SMS != nil {
-		c.Contents = append(c.Contents, campaign.Content{Channel: "sms", Body: cc.SMS.Body, Version: version})
-	}
-	if cc.Email != nil {
-		c.Contents = append(c.Contents, campaign.Content{Channel: "email", Subject: cc.Email.Subject, Body: cc.Email.Body, Version: version})
+	for _, lang := range content.Languages { // stored order: language, then channel
+		cc, ok := all[lang]
+		if !ok {
+			continue
+		}
+		if cc.SMS != nil {
+			c.Contents = append(c.Contents, campaign.Content{Language: lang, Channel: "sms", Body: cc.SMS.Body, Version: version})
+		}
+		if cc.Email != nil {
+			c.Contents = append(c.Contents, campaign.Content{Language: lang, Channel: "email", Subject: cc.Email.Subject,
+				Body: cc.Email.Body, Version: version})
+		}
 	}
 	c.Status, c.LastError = campaign.StatusContentReady, ""
 	return nil
 }
 
-func (s *MemStore) EditContent(_ context.Context, id int64, cc content.Content, channel string) error {
+func (s *MemStore) EditContent(_ context.Context, id int64, language string, cc content.Content, channel string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	c, err := s.guard(id, campaign.StatusContentReady)
@@ -123,7 +134,7 @@ func (s *MemStore) EditContent(_ context.Context, id int64, cc content.Content, 
 	}
 	for i := range c.Contents {
 		m := &c.Contents[i]
-		if m.Channel != channel {
+		if m.Language != language || m.Channel != channel {
 			continue
 		}
 		if channel == "sms" {
@@ -153,7 +164,7 @@ func (s *MemStore) Approve(_ context.Context, id int64, versions map[string]int,
 	}
 	current := map[string]int{}
 	for _, m := range c.Contents {
-		current[m.Channel] = m.Version
+		current[m.Language+"."+m.Channel] = m.Version
 	}
 	if !maps.Equal(current, versions) {
 		return fmt.Errorf("%w: the content changed while approving", campaign.ErrConflict)
@@ -231,8 +242,14 @@ func (s *MemStore) Count(context.Context, segment.Rule, time.Time) (segment.Audi
 	return s.Audience, nil
 }
 
-func (s *MemStore) MaxLengths(context.Context, segment.Rule, []string, time.Time) (content.MaxLengths, error) {
-	return s.Lens, nil
+func (s *MemStore) MaxLengths(context.Context, segment.Rule, []string, time.Time) (campaign.LanguageLengths, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := campaign.LanguageLengths{}
+	for lang, lens := range s.Lens {
+		out[lang] = maps.Clone(lens)
+	}
+	return out, nil
 }
 
 func (s *MemStore) Recorder(id int64) llm.Recorder {

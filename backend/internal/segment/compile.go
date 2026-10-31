@@ -21,20 +21,21 @@ func Where(r Rule, now time.Time) (string, []any, error) {
 	return b.sb.String(), b.args, nil
 }
 
-// CountSQL counts matching users and how many of them each channel may reach.
-// Columns: matched, sms, email.
+// CountSQL counts matching users and how many of them each channel may reach,
+// per user language. Columns: language, matched, sms, email.
 func CountSQL(r Rule, now time.Time) (string, []any, error) {
 	where, args, err := Where(r, now)
 	if err != nil {
 		return "", nil, err
 	}
-	return "SELECT count(*), " +
+	return "SELECT u.language, count(*), " +
 		"count(*) FILTER (WHERE " + consentColumns[ChannelSMS] + "), " +
 		"count(*) FILTER (WHERE " + consentColumns[ChannelEmail] + ") " +
-		"FROM users u WHERE " + where, args, nil
+		"FROM users u WHERE " + where + " GROUP BY 1", args, nil
 }
 
-// RecipientsSQL selects the ids of matching users who consented to channel.
+// RecipientsSQL selects the ids and languages of matching users who
+// consented to channel.
 // Consent is ANDed outside the rule's parentheses, so no rule (not even an
 // "any" group) can bypass it.
 func RecipientsSQL(r Rule, channel string, now time.Time) (string, []any, error) {
@@ -46,7 +47,7 @@ func RecipientsSQL(r Rule, channel string, now time.Time) (string, []any, error)
 	if err != nil {
 		return "", nil, err
 	}
-	return "SELECT u.id FROM users u WHERE (" + where + ") AND " + consent + " ORDER BY u.id", args, nil
+	return "SELECT u.id, u.language FROM users u WHERE (" + where + ") AND " + consent + " ORDER BY u.id", args, nil
 }
 
 // ReachableWhere matches users the rule selects who consented to at least one

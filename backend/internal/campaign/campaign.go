@@ -59,18 +59,40 @@ type Campaign struct {
 	CreatedAt   time.Time  `json:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at"`
 
-	// VariableLengths is how many characters each personalization variable
-	// counts as in the worst-case length check, measured on the reachable
-	// audience now; Limits are the maximum worst-case lengths by path
-	// ("sms.body"). A UI computes the same worst case the server validates:
-	// template length with each variable replaced by its counted length.
-	// VariableLengths is set once the campaign has a segment.
-	VariableLengths map[string]int `json:"variable_lengths,omitempty"`
-	Limits          map[string]int `json:"limits"`
+	// Languages are the recipient languages the campaign has (or needs)
+	// content for: those in the reachable audience now, plus any that
+	// already have content. Set once the campaign has a segment.
+	Languages []string `json:"languages,omitempty"`
+	// VariableLengths is, per language, how many characters each
+	// personalization variable counts as in the worst-case length check,
+	// measured on the reachable audience who read that language now; Limits
+	// are the maximum worst-case lengths by path ("sms.body"). A UI computes
+	// the same worst case the server validates: template length with each
+	// variable replaced by its counted length. Set once the campaign has a
+	// segment.
+	VariableLengths map[string]map[string]int `json:"variable_lengths,omitempty"`
+	Limits          map[string]int            `json:"limits"`
 }
 
-// Content is the current message for one channel.
+// LanguageLengths are the longest variable values per language among the
+// reachable audience. A language is present only if somebody reachable
+// reads it, so its keys are the languages content must be written in.
+type LanguageLengths map[string]content.MaxLengths
+
+// languages returns the languages present, in content.Languages order.
+func (l LanguageLengths) languages() []string {
+	var out []string
+	for _, lang := range content.Languages {
+		if _, ok := l[lang]; ok {
+			out = append(out, lang)
+		}
+	}
+	return out
+}
+
+// Content is the current message for one language and channel.
 type Content struct {
+	Language    string    `json:"language"`
 	Channel     string    `json:"channel"`
 	Subject     string    `json:"subject,omitempty"`
 	Body        string    `json:"body"`
@@ -97,10 +119,19 @@ func (c Campaign) Reachable() int {
 	return n
 }
 
-// content returns the stored messages in the validator's shape.
-func (c Campaign) content() content.Content {
+// hasContent reports whether there are messages for language.
+func (c Campaign) hasContent(language string) bool {
+	return slices.ContainsFunc(c.Contents, func(m Content) bool { return m.Language == language })
+}
+
+// content returns the stored messages of one language in the validator's
+// shape.
+func (c Campaign) content(language string) content.Content {
 	var out content.Content
 	for _, m := range c.Contents {
+		if m.Language != language {
+			continue
+		}
 		switch m.Channel {
 		case content.ChannelSMS:
 			out.SMS = &content.SMS{Body: m.Body}
@@ -118,14 +149,17 @@ type Store interface {
 	Create(ctx context.Context, brief string, channels []string) (Campaign, error)
 	Get(ctx context.Context, id int64) (Campaign, error)
 	SaveSegment(ctx context.Context, id int64, r segment.Rule, a segment.Audience) error
-	SaveContent(ctx context.Context, id int64, c content.Content) error
-	EditContent(ctx context.Context, id int64, c content.Content, channel string) error
+	// SaveContent replaces all content with one message set per language.
+	SaveContent(ctx context.Context, id int64, c map[string]content.Content) error
+	// EditContent stores channel's message from c for language.
+	EditContent(ctx context.Context, id int64, language string, c content.Content, channel string) error
 	SetError(ctx context.Context, id int64, msg string) error
 	// Approve moves a content_ready campaign to sending, or to scheduled if
 	// sendAt is set, and enqueues its messages in one transaction; scheduled
-	// messages are due at sendAt. It returns ErrConflict if the content is
-	// no longer at the validated versions (channel → version) or nobody can
-	// be reached.
+	// messages are due at sendAt. Each message records its recipient's
+	// language; only recipients whose language has content are queued. It
+	// returns ErrConflict if the content is no longer at the validated
+	// versions ("tr.sms" → version) or nobody can be reached.
 	Approve(ctx context.Context, id int64, versions map[string]int, now time.Time, sendAt *time.Time) error
 	// Progress counts the campaign's messages; ErrNotFound if it does not exist.
 	Progress(ctx context.Context, id int64) (Progress, error)
@@ -134,7 +168,9 @@ type Store interface {
 
 	Catalog(ctx context.Context) (segment.Catalog, error)
 	Count(ctx context.Context, r segment.Rule, now time.Time) (segment.Audience, error)
-	MaxLengths(ctx context.Context, r segment.Rule, channels []string, now time.Time) (content.MaxLengths, error)
+	// MaxLengths measures the variables per language over the users the rule
+	// matches who consented to at least one of channels.
+	MaxLengths(ctx context.Context, r segment.Rule, channels []string, now time.Time) (LanguageLengths, error)
 
 	// Recorder stores LLM attempts for one campaign in llm_generations.
 	Recorder(campaignID int64) llm.Recorder
@@ -191,7 +227,13 @@ func (s *Service) Get(ctx context.Context, id int64) (Campaign, error) {
 		if err != nil {
 			return Campaign{}, err
 		}
-		c.VariableLengths = lens.Counted()
+		c.VariableLengths = map[string]map[string]int{}
+		for _, lang := range content.Languages {
+			if _, reachable := lens[lang]; reachable || c.hasContent(lang) {
+				c.Languages = append(c.Languages, lang)
+				c.VariableLengths[lang] = lens[lang].Counted()
+			}
+		}
 	}
 	return c, nil
 }
@@ -229,10 +271,13 @@ func (s *Service) GenerateSegment(ctx context.Context, id int64) (Campaign, erro
 	return s.Get(ctx, id)
 }
 
-// GenerateContent asks the LLM for the messages of every campaign channel.
-// Length limits use the longest first name and city in the reachable
-// audience. onDelta receives the streamed text with its attempt number.
-func (s *Service) GenerateContent(ctx context.Context, id int64, onDelta func(attempt int, text string)) (Campaign, error) {
+// GenerateContent asks the LLM for the messages of every campaign channel,
+// once per language in the reachable audience, each with its own validation
+// and repair rounds. Length limits use the longest first name and city among
+// the reachable recipients of that language. onDelta receives the streamed
+// text with its language and attempt number. Content is saved only if every
+// language succeeds.
+func (s *Service) GenerateContent(ctx context.Context, id int64, onDelta func(language string, attempt int, text string)) (Campaign, error) {
 	c, err := s.store.Get(ctx, id)
 	if err != nil {
 		return Campaign{}, err
@@ -245,18 +290,31 @@ func (s *Service) GenerateContent(ctx context.Context, id int64, onDelta func(at
 			ErrConflict, strings.Join(c.Channels, " or "))
 	}
 
-	now := s.now()
-	lens, err := s.store.MaxLengths(ctx, *c.Rule, c.Channels, now)
+	all, err := s.store.MaxLengths(ctx, *c.Rule, c.Channels, s.now())
 	if err != nil {
 		return Campaign{}, err
 	}
-	req := llm.ContentRequest(llm.ContentInput{Brief: c.Brief, Channels: c.Channels, Rule: *c.Rule, Lengths: lens})
-	parse := func(b []byte) (content.Content, error) { return content.Parse(b, c.Channels, lens) }
-	result, err := llm.Generate(ctx, s.llm, s.store.Recorder(id), req, parse, onDelta)
-	if err != nil {
-		return Campaign{}, s.fail(ctx, id, err)
+	languages := all.languages()
+	if len(languages) == 0 {
+		return Campaign{}, fmt.Errorf("%w: nobody in this audience can be reached on %s anymore; generate the audience again",
+			ErrConflict, strings.Join(c.Channels, " or "))
 	}
-	if err := s.store.SaveContent(ctx, id, result); err != nil {
+	results := map[string]content.Content{}
+	for _, lang := range languages {
+		lens := all[lang]
+		req := llm.ContentRequest(llm.ContentInput{Brief: c.Brief, Channels: c.Channels, Rule: *c.Rule, Language: lang, Lengths: lens})
+		parse := func(b []byte) (content.Content, error) { return content.Parse(b, c.Channels, lens) }
+		var delta func(int, string)
+		if onDelta != nil {
+			delta = func(attempt int, text string) { onDelta(lang, attempt, text) }
+		}
+		result, err := llm.Generate(ctx, s.llm, s.store.Recorder(id), req, parse, delta)
+		if err != nil {
+			return Campaign{}, s.fail(ctx, id, inLanguage(lang, err))
+		}
+		results[lang] = result
+	}
+	if err := s.store.SaveContent(ctx, id, results); err != nil {
 		return Campaign{}, err
 	}
 	return s.Get(ctx, id)
@@ -268,10 +326,11 @@ type Edit struct {
 	Body    string `json:"body"`
 }
 
-// EditContent replaces one channel's message with the marketer's text after
-// the same validation generated content goes through, measured against the
-// audience as it is now. Validation failures are a content.ValidationError.
-func (s *Service) EditContent(ctx context.Context, id int64, channel string, e Edit) (Campaign, error) {
+// EditContent replaces one language's message for channel with the
+// marketer's text after the same validation generated content goes through,
+// measured against that language's audience as it is now. Validation
+// failures are a content.ValidationError.
+func (s *Service) EditContent(ctx context.Context, id int64, language, channel string, e Edit) (Campaign, error) {
 	c, err := s.store.Get(ctx, id)
 	if err != nil {
 		return Campaign{}, err
@@ -282,8 +341,11 @@ func (s *Service) EditContent(ctx context.Context, id int64, channel string, e E
 	if !slices.Contains(c.Channels, channel) {
 		return Campaign{}, fmt.Errorf("%w: %q is not a channel of this campaign", ErrInvalid, channel)
 	}
+	if !c.hasContent(language) {
+		return Campaign{}, fmt.Errorf("%w: this campaign has no %q messages", ErrInvalid, language)
+	}
 
-	edited := c.content()
+	edited := c.content(language)
 	switch channel {
 	case content.ChannelSMS:
 		if strings.TrimSpace(e.Subject) != "" {
@@ -298,10 +360,12 @@ func (s *Service) EditContent(ctx context.Context, id int64, channel string, e E
 	if err != nil {
 		return Campaign{}, err
 	}
-	if err := content.Validate(&edited, c.Channels, lens); err != nil {
+	// A language nobody reachable reads any more has no measurement and is
+	// checked with the pessimistic default lengths.
+	if err := content.Validate(&edited, c.Channels, lens[language]); err != nil {
 		return Campaign{}, err
 	}
-	if err := s.store.EditContent(ctx, id, edited, channel); err != nil {
+	if err := s.store.EditContent(ctx, id, language, edited, channel); err != nil {
 		return Campaign{}, err
 	}
 	return s.Get(ctx, id)
@@ -312,7 +376,9 @@ func (s *Service) EditContent(ctx context.Context, id int64, channel string, e E
 // since names and cities may be longer than when it was written or edited;
 // failures are a content.ValidationError and nothing is approved. Recipients
 // are computed again too: the rule matches who it matches today, and consent
-// is applied per channel by the store.
+// is applied per channel by the store. Every language in today's reachable
+// audience must have content; problems are reported with the language in
+// the path ("en.sms.body").
 //
 // With sendAt the campaign is scheduled: recipients and content are fixed
 // now, and the messages become due at sendAt. sendAt must be in the future
@@ -335,17 +401,32 @@ func (s *Service) Approve(ctx context.Context, id int64, sendAt *time.Time) (Cam
 		return Campaign{}, fmt.Errorf("%w: only generated, unapproved content can be approved (status %s)", ErrConflict, c.Status)
 	}
 
-	lens, err := s.store.MaxLengths(ctx, *c.Rule, c.Channels, now)
+	all, err := s.store.MaxLengths(ctx, *c.Rule, c.Channels, now)
 	if err != nil {
 		return Campaign{}, err
 	}
-	stored := c.content()
-	if err := content.Validate(&stored, c.Channels, lens); err != nil {
-		return Campaign{}, err
+	var problems content.ValidationError
+	for _, lang := range all.languages() {
+		if !c.hasContent(lang) {
+			return Campaign{}, fmt.Errorf("%w: the audience now includes recipients who read %s, and there are no %s messages; "+
+				"generate the messages again", ErrConflict, llm.LanguageNames[lang], llm.LanguageNames[lang])
+		}
+		stored := c.content(lang)
+		err := content.Validate(&stored, c.Channels, all[lang])
+		var verr content.ValidationError
+		switch {
+		case errors.As(err, &verr):
+			problems = append(problems, verr.Prefix(lang)...)
+		case err != nil:
+			return Campaign{}, err
+		}
+	}
+	if len(problems) > 0 {
+		return Campaign{}, problems
 	}
 	versions := map[string]int{}
 	for _, m := range c.Contents {
-		versions[m.Channel] = m.Version
+		versions[m.Language+"."+m.Channel] = m.Version
 	}
 	if err := s.store.Approve(ctx, id, versions, now, sendAt); err != nil {
 		return Campaign{}, err
@@ -450,6 +531,19 @@ func (s *Service) List(ctx context.Context, limit int, before int64) ([]Summary,
 		list = []Summary{}
 	}
 	return list, nil
+}
+
+// inLanguage names the language a content generation failed for, and puts
+// validation problems under it ("en.sms.body").
+func inLanguage(lang string, err error) error {
+	var gerr *llm.GenerationError
+	var verr content.ValidationError
+	if errors.As(err, &gerr) && errors.As(gerr.Err, &verr) {
+		g := *gerr
+		g.Err = verr.Prefix(lang)
+		err = &g
+	}
+	return fmt.Errorf("%s messages: %w", llm.LanguageNames[lang], err)
 }
 
 // fail records a generation error on the campaign for the UI and returns it.

@@ -2,8 +2,9 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { approveCampaign, generateContent } from '@/api/client'
-import type { Campaign, Channel, Content } from '@/api/types'
-import { channelLabels, formatDateTime, formatNumber } from '@/lib/format'
+import type { Campaign, Content, Language } from '@/api/types'
+import { channelLabels, formatDateTime, formatNumber, languageLabels } from '@/lib/format'
+import { languageTabs } from '@/lib/languages'
 import { defaultSchedule, MAX_SCHEDULE_DAYS, parseSchedule, toLocalInput } from '@/lib/schedule'
 import ChannelEditor from './ChannelEditor.vue'
 import ErrorAlert from './ErrorAlert.vue'
@@ -13,6 +14,7 @@ const emit = defineEmits<{ update: [campaign: Campaign]; busy: [busy: boolean] }
 
 const generating = ref(false)
 const attempt = ref(1)
+const streamLanguage = ref<Language | null>(null)
 const streamed = ref('')
 const generateError = ref<unknown>(null)
 let controller: AbortController | undefined
@@ -30,27 +32,63 @@ const schedule = computed(() => (when.value === 'later' ? parseSchedule(schedule
 const scheduleMin = computed(() => toLocalInput(new Date()))
 const scheduleMax = computed(() => toLocalInput(new Date(Date.now() + MAX_SCHEDULE_DAYS * 86_400_000)))
 
-const editorStates = reactive<Partial<Record<Channel, { dirty: boolean; valid: boolean }>>>({})
+// Editor state by "language.channel"; every language's editors stay mounted
+// (only the active tab is shown), so drafts survive switching tabs.
+const editorStates = reactive<Record<string, { dirty: boolean; valid: boolean }>>({})
 
 const status = computed(() => props.campaign.status)
+const tabs = computed(() => languageTabs(props.campaign))
+const activeLanguage = ref<Language>('tr')
+watch(
+  tabs,
+  (t) => {
+    if (t.length && !t.some((tab) => tab.language === activeLanguage.value)) activeLanguage.value = t[0]!.language
+  },
+  { immediate: true },
+)
+// Messages in display order: by language, then the campaign's channel order.
 const contents = computed(() => {
-  const byChannel = new Map((props.campaign.contents ?? []).map((c) => [c.channel, c]))
-  return props.campaign.channels.map((ch) => byChannel.get(ch)).filter((c): c is Content => !!c)
+  const byKey = new Map((props.campaign.contents ?? []).map((c) => [`${c.language}.${c.channel}`, c]))
+  return tabs.value.flatMap((t) =>
+    props.campaign.channels.map((ch) => byKey.get(`${t.language}.${ch}`)).filter((c): c is Content => !!c),
+  )
 })
+const missingLanguages = computed(() => tabs.value.filter((t) => !t.hasContent).map((t) => t.language))
+function tabState(lang: Language): 'dirty' | 'invalid' | null {
+  const states = contents.value
+    .filter((c) => c.language === lang)
+    .map((c) => editorStates[`${c.language}.${c.channel}`])
+    .filter((s) => !!s)
+  if (states.some((s) => !s.valid)) return 'invalid'
+  if (states.some((s) => s.dirty)) return 'dirty'
+  return null
+}
 const canGenerate = computed(() => status.value === 'audience_ready' || status.value === 'content_ready')
 const reachable = computed(() => {
   const a = props.campaign.audience
   return a ? props.campaign.channels.reduce((n, ch) => n + a[ch], 0) : 0
 })
 const editable = computed(() => status.value === 'content_ready' && !generating.value && !approving.value)
-const anyDirty = computed(() => Object.values(editorStates).some((s) => s?.dirty))
-const allValid = computed(() => Object.values(editorStates).every((s) => s?.valid))
+// Only editors of current messages count; a dropped language's state is stale.
+const currentStates = computed(() =>
+  contents.value.map((c) => editorStates[`${c.language}.${c.channel}`]).filter((s) => !!s),
+)
+const anyDirty = computed(() => currentStates.value.some((s) => s.dirty))
+const allValid = computed(() => currentStates.value.every((s) => s.valid))
 const canApprove = computed(
-  () => editable.value && contents.value.length > 0 && !anyDirty.value && allValid.value && !schedule.value?.error,
+  () =>
+    editable.value &&
+    contents.value.length > 0 &&
+    !missingLanguages.value.length &&
+    !anyDirty.value &&
+    allValid.value &&
+    !schedule.value?.error,
 )
 const approveHint = computed(() => {
-  if (anyDirty.value) return 'Save or discard your changes before approving.'
-  if (!allValid.value) return 'Fix the problems above before approving.'
+  if (missingLanguages.value.length)
+    return `Generate the messages again to include ${missingLanguages.value.map((l) => languageLabels[l]).join(' and ')}.`
+  if (anyDirty.value) return 'Save or discard your changes in every language before approving.'
+  if (!allValid.value) return 'Fix the problems in every language before approving.'
   return ''
 })
 
@@ -63,14 +101,18 @@ async function generate() {
   generateError.value = null
   approveError.value = null
   attempt.value = 1
+  streamLanguage.value = null
   streamed.value = ''
   try {
     const c = await generateContent(props.campaign.id, {
       signal: controller.signal,
-      onDelta(n, text) {
-        if (n !== attempt.value) {
-          attempt.value = n // a repair round starts over
+      onDelta(lang, n, text) {
+        if (lang !== streamLanguage.value || n !== attempt.value) {
+          // The next language, or a repair round, starts a new answer.
+          streamLanguage.value = lang
+          attempt.value = n
           streamed.value = ''
+          activeLanguage.value = lang
         }
         streamed.value += text
       },
@@ -149,7 +191,15 @@ async function approve() {
       <div class="flex items-center justify-between gap-2 text-sm">
         <span class="flex items-center gap-2 text-indigo-700">
           <span class="size-2 animate-pulse rounded-full bg-indigo-500" />
-          {{ attempt === 1 ? 'Claude is writing the messages…' : `Fixing validation problems (attempt ${attempt})…` }}
+          <template v-if="attempt === 1">
+            Claude is writing the {{ streamLanguage ? languageLabels[streamLanguage] : '' }} messages…
+          </template>
+          <template v-else>
+            Fixing the {{ streamLanguage ? languageLabels[streamLanguage] : '' }} messages (attempt {{ attempt }})…
+          </template>
+          <span v-if="tabs.length > 1 && streamLanguage" class="text-slate-500">
+            ({{ tabs.findIndex((t) => t.language === streamLanguage) + 1 }} of {{ tabs.length }} languages)
+          </span>
         </span>
         <button type="button" class="text-slate-500 hover:text-slate-800" @click="cancel">Cancel</button>
       </div>
@@ -176,20 +226,61 @@ async function approve() {
     </template>
 
     <template v-if="contents.length && !generating">
-      <div class="grid gap-4" :class="{ 'lg:grid-cols-2': contents.length > 1 }">
-        <ChannelEditor
-          v-for="c in contents"
-          :key="c.channel"
-          :campaign-id="campaign.id"
-          :channel="c.channel"
-          :saved="c"
-          :variable-lengths="campaign.variable_lengths ?? {}"
-          :limits="campaign.limits"
-          :readonly="!editable"
-          @saved="emit('update', $event)"
-          @state="(ch, s) => (editorStates[ch] = s)"
-        />
+      <div v-if="tabs.length > 1" role="tablist" aria-label="Message language" class="flex flex-wrap gap-2">
+        <button
+          v-for="t in tabs"
+          :key="t.language"
+          type="button"
+          role="tab"
+          :aria-selected="activeLanguage === t.language"
+          class="flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium"
+          :class="
+            activeLanguage === t.language
+              ? 'border-indigo-600 bg-indigo-50 text-indigo-800'
+              : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+          "
+          @click="activeLanguage = t.language"
+        >
+          {{ languageLabels[t.language] }}
+          <span class="font-normal text-slate-500 tabular-nums">{{ formatNumber(t.recipients) }} messages</span>
+          <span v-if="!t.hasContent" class="size-2 rounded-full bg-rose-500" title="No messages yet" />
+          <span v-else-if="tabState(t.language) === 'invalid'" class="size-2 rounded-full bg-rose-500" title="Has problems" />
+          <span v-else-if="tabState(t.language) === 'dirty'" class="size-2 rounded-full bg-amber-500" title="Unsaved changes" />
+        </button>
       </div>
+      <p v-if="tabs.length > 1" class="text-sm text-slate-500">
+        Each recipient gets the message in their own language.
+      </p>
+
+      <p
+        v-if="missingLanguages.includes(activeLanguage)"
+        class="rounded-xl border border-dashed border-rose-300 bg-white p-4 text-sm text-slate-600"
+      >
+        This audience now includes {{ languageLabels[activeLanguage] }} readers, but there are no
+        {{ languageLabels[activeLanguage] }} messages yet. Generate the messages again to write them.
+      </p>
+
+      <template v-for="t in tabs" :key="t.language">
+        <div
+          v-show="t.language === activeLanguage"
+          class="grid gap-4"
+          :class="{ 'lg:grid-cols-2': campaign.channels.length > 1 }"
+        >
+          <ChannelEditor
+            v-for="c in contents.filter((m) => m.language === t.language)"
+            :key="`${c.language}.${c.channel}`"
+            :campaign-id="campaign.id"
+            :language="c.language"
+            :channel="c.channel"
+            :saved="c"
+            :variable-lengths="campaign.variable_lengths?.[c.language] ?? {}"
+            :limits="campaign.limits"
+            :readonly="!editable"
+            @saved="emit('update', $event)"
+            @state="(s) => (editorStates[`${c.language}.${c.channel}`] = s)"
+          />
+        </div>
+      </template>
 
       <ErrorAlert v-if="approveError" :error="approveError" title="Could not approve" />
 

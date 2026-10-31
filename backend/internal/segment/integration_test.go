@@ -5,6 +5,7 @@ package segment
 import (
 	"context"
 	"os"
+	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -58,22 +59,33 @@ func TestIntegrationCountMatchesReferenceSQL(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var want Audience
-	err = db.QueryRow(ctx, `
-		SELECT count(*), count(*) FILTER (WHERE sms_opt_in), count(*) FILTER (WHERE email_opt_in)
+	// Reference per language; the totals are their sum.
+	rows, err := db.Query(ctx, `
+		SELECT language, count(*), count(*) FILTER (WHERE sms_opt_in), count(*) FILTER (WHERE email_opt_in)
 		FROM users u
 		WHERE city = 'İstanbul'
 		  AND EXISTS (SELECT 1 FROM user_events e WHERE e.user_id = u.id AND e.type = 'cart_add' AND e.occurred_at >= $1)
-		  AND NOT EXISTS (SELECT 1 FROM user_events e WHERE e.user_id = u.id AND e.type = 'purchase' AND e.occurred_at >= $1)`,
-		now.Add(-30*24*time.Hour)).Scan(&want.Matched, &want.SMS, &want.Email)
+		  AND NOT EXISTS (SELECT 1 FROM user_events e WHERE e.user_id = u.id AND e.type = 'purchase' AND e.occurred_at >= $1)
+		GROUP BY 1`,
+		now.Add(-30*24*time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
+	want := Audience{Languages: map[string]Counts{}}
+	var lang string
+	var c Counts
+	if _, err := pgx.ForEachRow(rows, []any{&lang, &c.Matched, &c.SMS, &c.Email}, func() error {
+		want.Languages[lang] = c
+		want.Matched, want.SMS, want.Email = want.Matched+c.Matched, want.SMS+c.SMS, want.Email+c.Email
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("compiled count = %+v, reference = %+v", got, want)
 	}
-	if got.Matched == 0 || got.SMS >= got.Matched || got.Email >= got.Matched {
+	if got.Matched == 0 || got.SMS >= got.Matched || got.Email >= got.Matched || len(got.Languages) != 2 {
 		t.Fatalf("implausible audience %+v", got)
 	}
 	t.Logf("example brief audience: %+v", got)
@@ -121,7 +133,11 @@ func TestIntegrationRecipientsOnlyIncludeConsentedUsers(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		ids, err := pgx.CollectRows(rows, pgx.RowTo[int64])
+		ids, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (int64, error) {
+			var id int64
+			var lang string
+			return id, row.Scan(&id, &lang)
+		})
 		if err != nil {
 			t.Fatal(err)
 		}

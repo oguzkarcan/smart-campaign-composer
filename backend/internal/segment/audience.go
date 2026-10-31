@@ -15,8 +15,18 @@ type Querier interface {
 }
 
 // Audience is how many users a rule matches and how many of them each channel
-// may reach given their consent.
+// may reach given their consent, in total and per user language.
 type Audience struct {
+	Matched int `json:"matched"`
+	SMS     int `json:"sms"`
+	Email   int `json:"email"`
+	// Languages has the same counts per language, for the languages that
+	// matched anybody.
+	Languages map[string]Counts `json:"languages,omitempty"`
+}
+
+// Counts are the audience numbers of one language.
+type Counts struct {
 	Matched int `json:"matched"`
 	SMS     int `json:"sms"`
 	Email   int `json:"email"`
@@ -28,8 +38,21 @@ func Count(ctx context.Context, db Querier, r Rule, now time.Time) (Audience, er
 	if err != nil {
 		return Audience{}, err
 	}
-	var a Audience
-	if err := db.QueryRow(ctx, sql, args...).Scan(&a.Matched, &a.SMS, &a.Email); err != nil {
+	rows, err := db.Query(ctx, sql, args...)
+	if err != nil {
+		return Audience{}, fmt.Errorf("count audience: %w", err)
+	}
+	a := Audience{Languages: map[string]Counts{}}
+	var lang string
+	var c Counts
+	_, err = pgx.ForEachRow(rows, []any{&lang, &c.Matched, &c.SMS, &c.Email}, func() error {
+		a.Languages[lang] = c
+		a.Matched += c.Matched
+		a.SMS += c.SMS
+		a.Email += c.Email
+		return nil
+	})
+	if err != nil {
 		return Audience{}, fmt.Errorf("count audience: %w", err)
 	}
 	return a, nil

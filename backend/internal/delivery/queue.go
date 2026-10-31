@@ -23,7 +23,8 @@ func NewPGQueue(db *pgxpool.Pool) *PGQueue { return &PGQueue{db: db} }
 // different rows without waiting on each other. The attempt is counted at
 // claim time, so a worker that dies mid-send still uses up an attempt and a
 // message cannot be retried forever. Each job carries its recipient and the
-// campaign's locked content, so sending needs no further queries.
+// campaign's locked content in the language recorded for the recipient at
+// approval, so sending needs no further queries.
 func (q *PGQueue) Claim(ctx context.Context, channel string, n int, lease time.Duration) ([]Job, error) {
 	rows, err := q.db.Query(ctx, `
 		WITH due AS (
@@ -37,8 +38,9 @@ func (q *PGQueue) Claim(ctx context.Context, channel string, n int, lease time.D
 		SET status = 'processing', attempts = m.attempts + 1,
 		    lease_until = now() + make_interval(secs => $3), updated_at = now()
 		FROM due, users u, campaign_contents cc
-		WHERE m.id = due.id AND u.id = m.user_id AND cc.campaign_id = m.campaign_id AND cc.channel = m.channel
-		RETURNING m.id, m.campaign_id, m.channel, m.attempts,
+		WHERE m.id = due.id AND u.id = m.user_id
+		  AND cc.campaign_id = m.campaign_id AND cc.channel = m.channel AND cc.language = m.language
+		RETURNING m.id, m.campaign_id, m.channel, m.language, m.attempts,
 		          u.email, u.phone, u.first_name, u.city, coalesce(cc.subject, ''), cc.body`,
 		channel, n, lease.Seconds())
 	if err != nil {
@@ -46,7 +48,7 @@ func (q *PGQueue) Claim(ctx context.Context, channel string, n int, lease time.D
 	}
 	jobs, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (Job, error) {
 		var j Job
-		err := row.Scan(&j.MessageID, &j.CampaignID, &j.Channel, &j.Attempt,
+		err := row.Scan(&j.MessageID, &j.CampaignID, &j.Channel, &j.Language, &j.Attempt,
 			&j.Email, &j.Phone, &j.FirstName, &j.City, &j.Subject, &j.Body)
 		return j, err
 	})

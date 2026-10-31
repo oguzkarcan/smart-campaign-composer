@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { ApiError, editContent } from '@/api/client'
-import type { Campaign, Channel, Content } from '@/api/types'
+import type { Campaign, Channel, Content, Language } from '@/api/types'
 import { checkField, render, token, VARIABLES } from '@/lib/content'
 import { channelLabels } from '@/lib/format'
 import ErrorAlert from './ErrorAlert.vue'
@@ -9,6 +9,7 @@ import LengthCounter from './LengthCounter.vue'
 
 const props = defineProps<{
   campaignId: number
+  language: Language
   channel: Channel
   saved: Content
   variableLengths: Record<string, number>
@@ -18,10 +19,15 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   saved: [campaign: Campaign]
-  state: [channel: Channel, state: { dirty: boolean; valid: boolean }]
+  state: [state: { dirty: boolean; valid: boolean }]
 }>()
 
-const sample = { first_name: 'Ayşe', city: 'İstanbul' }
+// A typical recipient of this language for the preview.
+const samples: Record<Language, { first_name: string; city: string }> = {
+  tr: { first_name: 'Ayşe', city: 'İstanbul' },
+  en: { first_name: 'Emily', city: 'İzmir' },
+}
+const sample = computed(() => samples[props.language])
 
 const subject = ref('')
 const body = ref('')
@@ -49,7 +55,7 @@ const bodyCheck = computed(() =>
 const dirty = computed(() => body.value !== props.saved.body || (isEmail.value && subject.value !== (props.saved.subject ?? '')))
 const valid = computed(() => bodyCheck.value.problems.length === 0 && (!isEmail.value || subjectCheck.value.problems.length === 0))
 
-watch([dirty, valid], () => emit('state', props.channel, { dirty: dirty.value, valid: valid.value }), { immediate: true })
+watch([dirty, valid], () => emit('state', { dirty: dirty.value, valid: valid.value }), { immediate: true })
 
 // Server problems arrive with paths like "email.subject"; show them under the field.
 const serverProblems = computed(() => (saveError.value instanceof ApiError ? saveError.value.problems : []))
@@ -92,7 +98,7 @@ async function save() {
   saveError.value = null
   try {
     const edit = isEmail.value ? { subject: subject.value, body: body.value } : { body: body.value }
-    emit('saved', await editContent(props.campaignId, props.channel, edit))
+    emit('saved', await editContent(props.campaignId, props.language, props.channel, edit))
   } catch (e) {
     saveError.value = e
   } finally {
@@ -121,7 +127,7 @@ function fieldClass(problems: string[]) {
 
     <div v-if="isEmail">
       <div class="flex items-baseline justify-between">
-        <label :for="`${channel}-subject`" class="text-sm font-medium">Subject</label>
+        <label :for="`${language}-${channel}-subject`" class="text-sm font-medium">Subject</label>
         <LengthCounter
           :count="subjectCheck.worstCase"
           :limit="subjectCheck.limit"
@@ -129,7 +135,7 @@ function fieldClass(problems: string[]) {
         />
       </div>
       <input
-        :id="`${channel}-subject`"
+        :id="`${language}-${channel}-subject`"
         v-model="subject"
         type="text"
         :disabled="readonly || saving"
@@ -143,11 +149,11 @@ function fieldClass(problems: string[]) {
 
     <div>
       <div class="flex items-baseline justify-between">
-        <label :for="`${channel}-body`" class="text-sm font-medium">{{ isEmail ? 'Body' : 'Message' }}</label>
+        <label :for="`${language}-${channel}-body`" class="text-sm font-medium">{{ isEmail ? 'Body' : 'Message' }}</label>
         <LengthCounter :count="bodyCheck.worstCase" :limit="bodyCheck.limit" :variables="variableLengths" />
       </div>
       <textarea
-        :id="`${channel}-body`"
+        :id="`${language}-${channel}-body`"
         ref="bodyField"
         v-model="body"
         :rows="isEmail ? 8 : 3"

@@ -37,9 +37,12 @@ type Message struct {
 type Request struct {
 	Kind          string
 	PromptVersion string
-	System        string
-	Messages      []Message
-	MaxTokens     int
+	// Language is the recipients' language a content request writes for
+	// ("tr", "en"); empty for segments.
+	Language  string
+	System    string
+	Messages  []Message
+	MaxTokens int
 
 	// Input is the structured task input the prompt was built from
 	// (SegmentInput or ContentInput). Real clients ignore it; the mock uses it
@@ -68,6 +71,7 @@ type Attempt struct {
 	Kind             string
 	Model            string
 	PromptVersion    string
+	Language         string // content only
 	Attempt          int
 	RawOutput        string
 	Parsed           json.RawMessage // nil unless valid
@@ -140,6 +144,7 @@ func Generate[T any](ctx context.Context, c Client, rec Recorder, req Request,
 			Kind:          req.Kind,
 			Model:         c.Model(),
 			PromptVersion: req.PromptVersion,
+			Language:      req.Language,
 			Attempt:       n,
 			RawOutput:     resp.Text,
 			InputTokens:   resp.InputTokens,

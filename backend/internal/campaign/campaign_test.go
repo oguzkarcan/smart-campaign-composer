@@ -63,7 +63,7 @@ func TestFlowWithMockLLM(t *testing.T) {
 	}
 
 	var streamed strings.Builder
-	c, err = svc.GenerateContent(ctx, c.ID, func(_ int, s string) { streamed.WriteString(s) })
+	c, err = svc.GenerateContent(ctx, c.ID, func(_ string, _ int, s string) { streamed.WriteString(s) })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestGenerateContentUsesAudienceLengths(t *testing.T) {
 		llm.ScriptedAnswer{Text: `{"sms": {"body": "Hi {{first_name}}"}}`},
 	)
 	svc, store := newTestService(client)
-	store.Lens = content.MaxLengths{content.VarFirstName: 13}
+	store.Lens = campaign.LanguageLengths{"tr": {content.VarFirstName: 13}}
 	ctx := context.Background()
 	c, _ := svc.Create(ctx, "everyone", []string{"sms"})
 	if _, err := svc.GenerateSegment(ctx, c.ID); err != nil {
@@ -189,7 +189,7 @@ func TestEditContent(t *testing.T) {
 	ctx := context.Background()
 	c := readyCampaign(t, svc, []string{"sms", "email"})
 
-	c, err := svc.EditContent(ctx, c.ID, "email", campaign.Edit{Subject: "{{ first_name }}, son gün!", Body: "Merhaba {{first_name}}"})
+	c, err := svc.EditContent(ctx, c.ID, "tr", "email", campaign.Edit{Subject: "{{ first_name }}, son gün!", Body: "Merhaba {{first_name}}"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,13 +219,13 @@ func TestEditContentRevalidates(t *testing.T) {
 		{"sms", campaign.Edit{Subject: "x", Body: "Hi"}, "sms.subject"},
 	}
 	for _, tt := range tests {
-		_, err := svc.EditContent(ctx, c.ID, tt.channel, tt.edit)
+		_, err := svc.EditContent(ctx, c.ID, "tr", tt.channel, tt.edit)
 		var verr content.ValidationError
 		if !errors.As(err, &verr) || verr[0].Path != tt.path {
 			t.Errorf("edit %+v: err = %v, want a validation error at %s", tt.edit, err, tt.path)
 		}
 	}
-	if _, err := svc.EditContent(ctx, c.ID, "email", campaign.Edit{Subject: "s", Body: "b"}); !errors.Is(err, campaign.ErrInvalid) {
+	if _, err := svc.EditContent(ctx, c.ID, "tr", "email", campaign.Edit{Subject: "s", Body: "b"}); !errors.Is(err, campaign.ErrInvalid) {
 		t.Errorf("editing a channel the campaign does not use: err = %v", err)
 	}
 
@@ -247,7 +247,7 @@ func TestNothingChangesAfterApproval(t *testing.T) {
 	if _, err := svc.GenerateContent(ctx, c.ID, nil); !errors.Is(err, campaign.ErrConflict) {
 		t.Errorf("GenerateContent: err = %v", err)
 	}
-	if _, err := svc.EditContent(ctx, c.ID, "sms", campaign.Edit{Body: "Hi"}); !errors.Is(err, campaign.ErrConflict) {
+	if _, err := svc.EditContent(ctx, c.ID, "tr", "sms", campaign.Edit{Body: "Hi"}); !errors.Is(err, campaign.ErrConflict) {
 		t.Errorf("EditContent: err = %v", err)
 	}
 }
@@ -273,7 +273,7 @@ func TestApprove(t *testing.T) {
 	if _, err := svc.Approve(ctx, c.ID, nil); !errors.Is(err, campaign.ErrConflict) {
 		t.Errorf("second Approve: err = %v", err)
 	}
-	if _, err := svc.EditContent(ctx, c.ID, "sms", campaign.Edit{Body: "Hi"}); !errors.Is(err, campaign.ErrConflict) {
+	if _, err := svc.EditContent(ctx, c.ID, "tr", "sms", campaign.Edit{Body: "Hi"}); !errors.Is(err, campaign.ErrConflict) {
 		t.Errorf("EditContent after approval: err = %v", err)
 	}
 }
@@ -299,7 +299,7 @@ func TestApproveScheduled(t *testing.T) {
 	if p, err := svc.Progress(ctx, c.ID); err != nil || p.Done {
 		t.Fatalf("progress done %v, err %v", p.Done, err)
 	}
-	if _, err := svc.EditContent(ctx, c.ID, "sms", campaign.Edit{Body: "Hi"}); !errors.Is(err, campaign.ErrConflict) {
+	if _, err := svc.EditContent(ctx, c.ID, "tr", "sms", campaign.Edit{Body: "Hi"}); !errors.Is(err, campaign.ErrConflict) {
 		t.Errorf("EditContent while scheduled: err = %v", err)
 	}
 	if _, err := svc.Approve(ctx, c.ID, nil); !errors.Is(err, campaign.ErrConflict) {
@@ -356,21 +356,21 @@ func TestApproveRevalidatesAgainstCurrentAudience(t *testing.T) {
 	c := readyCampaign(t, svc, []string{"sms"})
 	// Exactly 160 while names count as the placeholder's 14 characters.
 	body := strings.Repeat("a", 160-14) + "{{first_name}}"
-	if _, err := svc.EditContent(ctx, c.ID, "sms", campaign.Edit{Body: body}); err != nil {
+	if _, err := svc.EditContent(ctx, c.ID, "tr", "sms", campaign.Edit{Body: body}); err != nil {
 		t.Fatal(err)
 	}
 
-	store.Lens = content.MaxLengths{content.VarFirstName: 15, content.VarCity: 10}
+	store.Lens = campaign.LanguageLengths{"tr": {content.VarFirstName: 15, content.VarCity: 10}}
 	_, err := svc.Approve(ctx, c.ID, nil)
 	var verr content.ValidationError
-	if !errors.As(err, &verr) || verr[0].Path != "sms.body" {
-		t.Fatalf("err = %v, want a validation error at sms.body", err)
+	if !errors.As(err, &verr) || verr[0].Path != "tr.sms.body" {
+		t.Fatalf("err = %v, want a validation error at tr.sms.body", err)
 	}
 	if c, _ = svc.Get(ctx, c.ID); c.Status != campaign.StatusContentReady || store.Queued[c.ID] != 0 {
 		t.Fatalf("status %s, queued %d after a failed approval", c.Status, store.Queued[c.ID])
 	}
 
-	store.Lens = content.MaxLengths{content.VarFirstName: 13, content.VarCity: 10}
+	store.Lens = campaign.LanguageLengths{"tr": {content.VarFirstName: 13, content.VarCity: 10}}
 	if _, err := svc.Approve(ctx, c.ID, nil); err != nil {
 		t.Fatalf("approve after the audience shrank back: %v", err)
 	}
@@ -382,8 +382,8 @@ func TestApproveRefusesChangedContent(t *testing.T) {
 	svc, store := newTestService(&llm.Mock{})
 	ctx := context.Background()
 	c := readyCampaign(t, svc, []string{"sms"})
-	validated := map[string]int{"sms": c.Contents[0].Version}
-	if _, err := svc.EditContent(ctx, c.ID, "sms", campaign.Edit{Body: "Hi"}); err != nil {
+	validated := map[string]int{"tr.sms": c.Contents[0].Version}
+	if _, err := svc.EditContent(ctx, c.ID, "tr", "sms", campaign.Edit{Body: "Hi"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Approve(ctx, c.ID, validated, time.Now(), nil); !errors.Is(err, campaign.ErrConflict) {
@@ -407,20 +407,146 @@ func TestGetExposesValidationLengths(t *testing.T) {
 		t.Fatalf("draft: lengths %v, limits %v", c.VariableLengths, c.Limits)
 	}
 
-	store.Lens = content.MaxLengths{content.VarFirstName: 15, content.VarCity: 0}
+	store.Lens = campaign.LanguageLengths{"tr": {content.VarFirstName: 15, content.VarCity: 0}}
 	c, err := svc.GenerateSegment(ctx, c.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// 15 as measured; the empty city measurement counts as UnknownLength.
-	if c.VariableLengths["first_name"] != 15 || c.VariableLengths["city"] != content.UnknownLength {
+	if c.VariableLengths["tr"]["first_name"] != 15 || c.VariableLengths["tr"]["city"] != content.UnknownLength {
 		t.Fatalf("variable lengths = %v", c.VariableLengths)
 	}
 
 	// An edit that the counter would show as exactly 160 is accepted.
 	c, _ = svc.GenerateContent(ctx, c.ID, nil)
-	body := strings.Repeat("a", 160-c.VariableLengths["first_name"]) + "{{first_name}}"
-	if _, err := svc.EditContent(ctx, c.ID, "sms", campaign.Edit{Body: body}); err != nil {
+	body := strings.Repeat("a", 160-c.VariableLengths["tr"]["first_name"]) + "{{first_name}}"
+	if _, err := svc.EditContent(ctx, c.ID, "tr", "sms", campaign.Edit{Body: body}); err != nil {
 		t.Fatalf("160 by the exposed lengths was rejected: %v", err)
+	}
+}
+
+// bilingual makes the in-memory audience read Turkish and English; English
+// names are longer.
+func bilingual(store *campaigntest.MemStore) {
+	store.Lens = campaign.LanguageLengths{
+		content.LanguageTR: {content.VarFirstName: 13, content.VarCity: 10},
+		content.LanguageEN: {content.VarFirstName: 20, content.VarCity: 10},
+	}
+}
+
+// Each language in the audience gets its own messages, written and
+// validated with that language's lengths, and streamed and recorded with it.
+func TestGenerateContentPerLanguage(t *testing.T) {
+	svc, store := newTestService(&llm.Mock{})
+	bilingual(store)
+	ctx := context.Background()
+	c, _ := svc.Create(ctx, exampleBrief, []string{"sms", "email"})
+	if _, err := svc.GenerateSegment(ctx, c.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	streamed := map[string]string{}
+	c, err := svc.GenerateContent(ctx, c.ID, func(lang string, _ int, s string) { streamed[lang] += s })
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, m := range c.Contents {
+		got = append(got, m.Language+"."+m.Channel)
+	}
+	if !slices.Equal(got, []string{"tr.sms", "tr.email", "en.sms", "en.email"}) || !slices.Equal(c.Languages, []string{"tr", "en"}) {
+		t.Fatalf("contents %v, languages %v", got, c.Languages)
+	}
+	if !strings.Contains(c.Contents[0].Body, "%30 indirim") || !strings.Contains(c.Contents[2].Body, "30% off") {
+		t.Fatalf("tr sms %q, en sms %q", c.Contents[0].Body, c.Contents[2].Body)
+	}
+	if !strings.Contains(streamed["tr"], "indirim") || !strings.Contains(streamed["en"], "off") {
+		t.Fatalf("streamed %v", streamed)
+	}
+	if c.VariableLengths["en"]["first_name"] != 20 || c.VariableLengths["tr"]["first_name"] != 14 { // never below the placeholder
+		t.Fatalf("variable lengths %v", c.VariableLengths)
+	}
+	var recorded []string
+	for _, a := range store.Attempts(c.ID) {
+		if a.Kind == llm.KindContent {
+			recorded = append(recorded, a.Language)
+		}
+	}
+	if !slices.Equal(recorded, []string{"tr", "en"}) {
+		t.Fatalf("content attempts recorded for %v", recorded)
+	}
+}
+
+// If one language fails, nothing is saved and the problems name the language.
+func TestGenerateContentAllLanguagesOrNothing(t *testing.T) {
+	tooLong := llm.ScriptedAnswer{Text: `{"sms": {"body": "` + strings.Repeat("a", 170) + `"}}`}
+	svc, store := newTestService(llm.NewScripted(
+		llm.ScriptedAnswer{Text: `{"match": "all", "conditions": []}`},
+		llm.ScriptedAnswer{Text: `{"sms": {"body": "Merhaba {{first_name}}"}}`},
+		tooLong, tooLong, tooLong,
+	))
+	bilingual(store)
+	ctx := context.Background()
+	c, _ := svc.Create(ctx, "everyone", []string{"sms"})
+	if _, err := svc.GenerateSegment(ctx, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, err := svc.GenerateContent(ctx, c.ID, nil)
+	var verr content.ValidationError
+	if !errors.As(err, &verr) || verr[0].Path != "en.sms.body" || !strings.HasPrefix(err.Error(), "English messages: ") {
+		t.Fatalf("err = %v", err)
+	}
+	if c, _ = svc.Get(ctx, c.ID); c.Status != campaign.StatusAudienceReady || len(c.Contents) != 0 || c.LastError == "" {
+		t.Fatalf("after a failed language: status %s, %d contents, last error %q", c.Status, len(c.Contents), c.LastError)
+	}
+}
+
+// Edits change one language's message and are checked with its lengths;
+// approval reports problems under the language.
+func TestEditAndApprovePerLanguage(t *testing.T) {
+	svc, store := newTestService(&llm.Mock{})
+	bilingual(store)
+	ctx := context.Background()
+	c := readyCampaign(t, svc, []string{"sms"})
+
+	// 140 + 20 fits English names exactly; 141 does not.
+	fits := strings.Repeat("a", 140) + "{{first_name}}"
+	if _, err := svc.EditContent(ctx, c.ID, "en", "sms", campaign.Edit{Body: "a" + fits}); err == nil {
+		t.Fatal("English edit over the limit was accepted")
+	}
+	c, err := svc.EditContent(ctx, c.ID, "en", "sms", campaign.Edit{Body: fits})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Contents[1].Body != fits || !c.Contents[1].HumanEdited || c.Contents[0].HumanEdited {
+		t.Fatalf("contents %+v", c.Contents)
+	}
+
+	store.Lens["en"][content.VarFirstName] = 25 // longer English names joined
+	_, err = svc.Approve(ctx, c.ID, nil)
+	var verr content.ValidationError
+	if !errors.As(err, &verr) || len(verr) != 1 || verr[0].Path != "en.sms.body" {
+		t.Fatalf("approve: err = %v", err)
+	}
+}
+
+// Approval refuses when the audience gained a language without messages.
+func TestApproveNeedsEveryLanguage(t *testing.T) {
+	svc, store := newTestService(&llm.Mock{})
+	ctx := context.Background()
+	c := readyCampaign(t, svc, []string{"sms"}) // Turkish only
+
+	bilingual(store)
+	if c, _ := svc.Get(ctx, c.ID); !slices.Equal(c.Languages, []string{"tr", "en"}) {
+		t.Fatalf("languages %v, want en listed as needed", c.Languages)
+	}
+	if _, err := svc.Approve(ctx, c.ID, nil); !errors.Is(err, campaign.ErrConflict) || !strings.Contains(err.Error(), "English") {
+		t.Fatalf("err = %v", err)
+	}
+	if _, err := svc.GenerateContent(ctx, c.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Approve(ctx, c.ID, nil); err != nil {
+		t.Fatalf("approve with both languages: %v", err)
 	}
 }

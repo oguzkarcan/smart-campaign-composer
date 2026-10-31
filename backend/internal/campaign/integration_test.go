@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -63,16 +64,33 @@ func TestIntegrationFlow(t *testing.T) {
 		c.Audience.SMS > c.Audience.Matched || c.Audience.Email > c.Audience.Matched {
 		t.Fatalf("after segment: status %s, audience %+v", c.Status, c.Audience)
 	}
+	if tr, en := c.Audience.Languages["tr"], c.Audience.Languages["en"]; tr.Matched == 0 || en.Matched == 0 ||
+		tr.Matched+en.Matched != c.Audience.Matched || tr.SMS+en.SMS != c.Audience.SMS {
+		t.Fatalf("audience per language %+v does not add up to %+v", c.Audience.Languages, c.Audience)
+	}
+	if again, err := svc.Get(ctx, c.ID); err != nil || !reflect.DeepEqual(again.Audience, c.Audience) {
+		t.Fatalf("stored audience %+v, err %v", again.Audience, err)
+	}
 
 	c, err = svc.GenerateContent(ctx, c.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Status != StatusContentReady || len(c.Contents) != 2 || c.Contents[1].Subject == "" || c.Contents[0].Version != 1 {
+	// The seeded audience reads both languages: tr and en messages per channel.
+	if c.Status != StatusContentReady || len(c.Contents) != 4 || c.Contents[1].Subject == "" || c.Contents[0].Version != 1 {
 		t.Fatalf("after content: %+v", c)
 	}
+	if !slices.Equal(c.Languages, []string{"tr", "en"}) || c.Contents[0].Language != "tr" || c.Contents[2].Language != "en" ||
+		!strings.Contains(c.Contents[0].Body, "%30 indirim") || !strings.Contains(c.Contents[2].Body, "30% off") {
+		t.Fatalf("languages %v, contents %+v", c.Languages, c.Contents)
+	}
+	var generated []string
+	if err := db.QueryRow(ctx, `SELECT array_agg(language ORDER BY id) FROM llm_generations
+		WHERE campaign_id = $1 AND kind = 'content'`, c.ID).Scan(&generated); err != nil || !slices.Equal(generated, []string{"tr", "en"}) {
+		t.Fatalf("content attempts recorded for %v, err %v", generated, err)
+	}
 
-	c, err = svc.EditContent(ctx, c.ID, "sms", Edit{Body: "{{first_name}}, %30 indirim bugün bitiyor!"})
+	c, err = svc.EditContent(ctx, c.ID, "tr", "sms", Edit{Body: "{{first_name}}, %30 indirim bugün bitiyor!"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +117,8 @@ func TestIntegrationFlow(t *testing.T) {
 		}
 		kinds = append(kinds, kind)
 	}
-	if strings.Join(kinds, ",") != "segment,content,content" || !json.Valid(parsed) || validationErrors != nil {
+	// Content is generated twice (initial and regenerated), once per language each time.
+	if strings.Join(kinds, ",") != "segment,content,content,content,content" || !json.Valid(parsed) || validationErrors != nil {
 		t.Fatalf("llm_generations: kinds %v, parsed %s, validation_errors %s", kinds, parsed, validationErrors)
 	}
 }
@@ -143,8 +162,14 @@ func TestIntegrationMaxLengths(t *testing.T) {
 	}
 	// The rule targets İstanbul, so the longest city is exactly "İstanbul"
 	// (8 characters, not 9 bytes); names are at most "Muhammed Emin" (13).
-	if lens[content.VarCity] != 8 || lens[content.VarFirstName] < 3 || lens[content.VarFirstName] > 13 {
-		t.Fatalf("lengths = %v", lens)
+	// Both languages are in the seeded audience and measured separately.
+	if len(lens) != 2 {
+		t.Fatalf("languages measured = %v, want tr and en", lens)
+	}
+	for lang, l := range lens {
+		if l[content.VarCity] != 8 || l[content.VarFirstName] < 3 || l[content.VarFirstName] > 13 {
+			t.Fatalf("%s lengths = %v", lang, l)
+		}
 	}
 }
 
@@ -169,8 +194,8 @@ func TestIntegrationWritesStopAfterApproval(t *testing.T) {
 	sms := content.Content{SMS: &content.SMS{Body: "changed"}}
 	for name, err := range map[string]error{
 		"SaveSegment": store.SaveSegment(ctx, c.ID, *c.Rule, *c.Audience),
-		"SaveContent": store.SaveContent(ctx, c.ID, sms),
-		"EditContent": store.EditContent(ctx, c.ID, sms, "sms"),
+		"SaveContent": store.SaveContent(ctx, c.ID, map[string]content.Content{"tr": sms}),
+		"EditContent": store.EditContent(ctx, c.ID, "tr", sms, "sms"),
 	} {
 		if !errors.Is(err, ErrConflict) {
 			t.Errorf("%s: err = %v, want ErrConflict", name, err)
@@ -203,20 +228,27 @@ func TestIntegrationApproveEnqueues(t *testing.T) {
 
 	// One queued message per user and channel, matching the audience counts,
 	// and only to users who consented to that channel.
-	var sms, email, queued, unconsented int
+	// Each message keeps its recipient's language.
+	var sms, email, queued, unconsented, wrongLanguage, english int
 	err = db.QueryRow(ctx, `
 		SELECT count(*) FILTER (WHERE m.channel = 'sms'),
 		       count(*) FILTER (WHERE m.channel = 'email'),
 		       count(*) FILTER (WHERE m.status = 'queued' AND m.attempts = 0),
-		       count(*) FILTER (WHERE (m.channel = 'sms' AND NOT u.sms_opt_in) OR (m.channel = 'email' AND NOT u.email_opt_in))
+		       count(*) FILTER (WHERE (m.channel = 'sms' AND NOT u.sms_opt_in) OR (m.channel = 'email' AND NOT u.email_opt_in)),
+		       count(*) FILTER (WHERE m.language <> u.language),
+		       count(*) FILTER (WHERE m.language = 'en')
 		FROM messages m JOIN users u ON u.id = m.user_id WHERE m.campaign_id = $1`, c.ID).
-		Scan(&sms, &email, &queued, &unconsented)
+		Scan(&sms, &email, &queued, &unconsented, &wrongLanguage, &english)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if sms != c.Audience.SMS || email != c.Audience.Email || queued != sms+email || unconsented != 0 || sms == 0 || email == 0 {
 		t.Fatalf("sms %d (want %d), email %d (want %d), queued %d, unconsented %d",
 			sms, c.Audience.SMS, email, c.Audience.Email, queued, unconsented)
+	}
+	en := c.Audience.Languages["en"]
+	if wrongLanguage != 0 || english != en.SMS+en.Email {
+		t.Fatalf("messages in a language other than the recipient's: %d; English %d, want %d", wrongLanguage, english, en.SMS+en.Email)
 	}
 
 	// Enqueueing again adds nothing.
@@ -407,5 +439,45 @@ func TestIntegrationConcurrentApprovals(t *testing.T) {
 	err := db.QueryRow(ctx, `SELECT count(*), count(DISTINCT (user_id, channel)) FROM messages WHERE campaign_id = $1`, c.ID).Scan(&total, &distinct)
 	if err != nil || total != distinct || total != c.Audience.SMS+c.Audience.Email {
 		t.Fatalf("messages %d, distinct %d, want %d (err %v)", total, distinct, c.Audience.SMS+c.Audience.Email, err)
+	}
+}
+
+// Approval needs messages for every language in today's audience. The store
+// on its own never queues a recipient whose language has no content, so the
+// worker cannot be left with a message it has nothing to send for.
+func TestIntegrationApproveNeedsEveryLanguage(t *testing.T) {
+	ctx := context.Background()
+	db := testDB(t)
+	store := NewPGStore(db)
+	svc := NewService(store, &llm.Mock{})
+	c := createForTest(t, svc, db, []string{"sms"})
+	if _, err := svc.GenerateSegment(ctx, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.GenerateContent(ctx, c.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, "DELETE FROM campaign_contents WHERE campaign_id = $1 AND language = 'en'", c.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := svc.Approve(ctx, c.ID, nil); !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), "English") {
+		t.Fatalf("approve without English messages: err = %v", err)
+	}
+
+	c, err := svc.Get(ctx, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Approve(ctx, c.ID, map[string]int{"tr.sms": c.Contents[0].Version}, time.Now(), nil); err != nil {
+		t.Fatal(err)
+	}
+	var queued, english int
+	if err := db.QueryRow(ctx, "SELECT count(*), count(*) FILTER (WHERE language = 'en') FROM messages WHERE campaign_id = $1",
+		c.ID).Scan(&queued, &english); err != nil {
+		t.Fatal(err)
+	}
+	if want := c.Audience.Languages["tr"].SMS; queued != want || english != 0 {
+		t.Fatalf("queued %d (want the %d Turkish recipients), English %d", queued, want, english)
 	}
 }

@@ -83,18 +83,20 @@ func (s *Server) handleGenerateSegment(w http.ResponseWriter, r *http.Request) {
 }
 
 type deltaEvent struct {
-	Attempt int    `json:"attempt"`
-	Text    string `json:"text"`
+	Language string `json:"language"`
+	Attempt  int    `json:"attempt"`
+	Text     string `json:"text"`
 }
 
 // handleGenerateContent streams generation as server-sent events:
 //
-//	event: delta  data: {"attempt": 1, "text": "..."}   streamed model output
-//	event: done   data: <campaign>                       validated and saved
+//	event: delta  data: {"language": "tr", "attempt": 1, "text": "..."}   streamed model output
+//	event: done   data: <campaign>                                         validated and saved
 //	event: error  data: {"status": 422, "error": "...", "problems": [...]}
 //
-// A delta with a higher attempt number starts a repair round; the UI should
-// clear its preview. Errors before the first delta (unknown campaign, wrong
+// Languages are written one after another. A delta with a new language or a
+// higher attempt number starts a new answer (a repair round restarts it);
+// the UI should clear its preview. Errors before the first delta (unknown campaign, wrong
 // status) are a normal JSON error response, not a stream.
 func (s *Server) handleGenerateContent(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(w, r)
@@ -102,8 +104,8 @@ func (s *Server) handleGenerateContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	stream := newSSE(w)
-	c, err := s.campaigns.GenerateContent(r.Context(), id, func(attempt int, text string) {
-		stream.send("delta", deltaEvent{Attempt: attempt, Text: text})
+	c, err := s.campaigns.GenerateContent(r.Context(), id, func(language string, attempt int, text string) {
+		stream.send("delta", deltaEvent{Language: language, Attempt: attempt, Text: text})
 	})
 	switch {
 	case err != nil && !stream.started:
@@ -126,7 +128,7 @@ func (s *Server) handleEditContent(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &edit) {
 		return
 	}
-	c, err := s.campaigns.EditContent(r.Context(), id, r.PathValue("channel"), edit)
+	c, err := s.campaigns.EditContent(r.Context(), id, r.PathValue("language"), r.PathValue("channel"), edit)
 	if err != nil {
 		writeError(w, err)
 		return

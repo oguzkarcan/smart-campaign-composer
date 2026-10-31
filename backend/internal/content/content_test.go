@@ -218,3 +218,11 @@ func TestCounted(t *testing.T) {
 		t.Fatalf("unmeasured Counted = %v", got)
 	}
 }
+
+func TestValidationErrorPrefix(t *testing.T) {
+	err := ValidationError{{Path: "sms.body", Message: "too long"}, {Message: "invalid JSON"}}
+	got := err.Prefix("en")
+	if got[0].Path != "en.sms.body" || got[1].Path != "en" || err[0].Path != "sms.body" {
+		t.Fatalf("prefixed %+v, original %+v", got, err)
+	}
+}

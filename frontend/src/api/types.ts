@@ -4,6 +4,11 @@ export type Channel = 'sms' | 'email'
 
 export const CHANNELS: readonly Channel[] = ['sms', 'email']
 
+// Recipient languages; content is written once per language in the audience.
+export type Language = 'tr' | 'en'
+
+export const LANGUAGES: readonly Language[] = ['tr', 'en']
+
 export type CampaignStatus =
   | 'draft'
   | 'audience_ready'
@@ -42,13 +47,19 @@ export interface SegmentRule {
   conditions: Condition[]
 }
 
-export interface Audience {
+export interface AudienceCounts {
   matched: number
   sms: number
   email: number
 }
 
+export interface Audience extends AudienceCounts {
+  // The same counts per user language (languages that matched anybody).
+  languages?: Partial<Record<Language, AudienceCounts>>
+}
+
 export interface Content {
+  language: Language
   channel: Channel
   subject?: string
   body: string
@@ -71,9 +82,13 @@ export interface Campaign {
   scheduled_at?: string
   created_at: string
   updated_at: string
-  // Characters each variable counts as in the worst-case length check, and
-  // the maximum worst-case length per path ("sms.body", "email.subject").
-  variable_lengths?: Record<string, number>
+  // Languages the campaign has or needs content for (reachable readers now,
+  // plus any with content).
+  languages?: Language[]
+  // Per language, characters each variable counts as in the worst-case
+  // length check, and the maximum worst-case length per path ("sms.body",
+  // "email.subject").
+  variable_lengths?: Partial<Record<Language, Record<string, number>>>
   limits: Record<string, number>
 }
 

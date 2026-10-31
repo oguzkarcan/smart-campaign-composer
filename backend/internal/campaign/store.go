@@ -40,16 +40,16 @@ func (s *PGStore) Create(ctx context.Context, brief string, channels []string) (
 func (s *PGStore) Get(ctx context.Context, id int64) (Campaign, error) {
 	var (
 		c                   Campaign
-		rule                []byte
+		rule, languages     []byte
 		matched, sms, email *int
 		lastError           *string
 	)
 	err := s.db.QueryRow(ctx, `
 		SELECT id, brief, status, channels, segment_rule, audience_count, audience_sms, audience_email,
-		       last_error, approved_at, scheduled_at, created_at, updated_at
+		       audience_languages, last_error, approved_at, scheduled_at, created_at, updated_at
 		FROM campaigns WHERE id = $1`, id).Scan(
 		&c.ID, &c.Brief, &c.Status, &c.Channels, &rule, &matched, &sms, &email,
-		&lastError, &c.ApprovedAt, &c.ScheduledAt, &c.CreatedAt, &c.UpdatedAt)
+		&languages, &lastError, &c.ApprovedAt, &c.ScheduledAt, &c.CreatedAt, &c.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Campaign{}, ErrNotFound
 	}
@@ -64,21 +64,26 @@ func (s *PGStore) Get(ctx context.Context, id int64) (Campaign, error) {
 	}
 	if matched != nil {
 		c.Audience = &segment.Audience{Matched: *matched, SMS: deref(sms), Email: deref(email)}
+		if languages != nil {
+			if err := json.Unmarshal(languages, &c.Audience.Languages); err != nil {
+				return Campaign{}, fmt.Errorf("decode audience languages of campaign %d: %w", id, err)
+			}
+		}
 	}
 	if lastError != nil {
 		c.LastError = *lastError
 	}
 
 	rows, err := s.db.Query(ctx, `
-		SELECT channel, coalesce(subject, ''), body, human_edited, version, updated_at
+		SELECT language, channel, coalesce(subject, ''), body, human_edited, version, updated_at
 		FROM campaign_contents WHERE campaign_id = $1
-		ORDER BY CASE channel WHEN 'sms' THEN 0 ELSE 1 END`, id)
+		ORDER BY CASE language WHEN 'tr' THEN 0 ELSE 1 END, CASE channel WHEN 'sms' THEN 0 ELSE 1 END`, id)
 	if err != nil {
 		return Campaign{}, fmt.Errorf("get content of campaign %d: %w", id, err)
 	}
 	c.Contents, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (Content, error) {
 		var m Content
-		err := row.Scan(&m.Channel, &m.Subject, &m.Body, &m.HumanEdited, &m.Version, &m.UpdatedAt)
+		err := row.Scan(&m.Language, &m.Channel, &m.Subject, &m.Body, &m.HumanEdited, &m.Version, &m.UpdatedAt)
 		return m, err
 	})
 	if err != nil {
@@ -102,11 +107,15 @@ func (s *PGStore) SaveSegment(ctx context.Context, id int64, r segment.Rule, a s
 	if err != nil {
 		return fmt.Errorf("encode segment: %w", err)
 	}
+	languages, err := json.Marshal(a.Languages)
+	if err != nil {
+		return fmt.Errorf("encode audience languages: %w", err)
+	}
 	return pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `
 			UPDATE campaigns SET segment_rule = $2, audience_count = $3, audience_sms = $4, audience_email = $5,
-			       status = 'audience_ready', last_error = NULL, updated_at = now()
-			WHERE id = $1 AND `+editableSQL, id, rule, a.Matched, a.SMS, a.Email)
+			       audience_languages = $6, status = 'audience_ready', last_error = NULL, updated_at = now()
+			WHERE id = $1 AND `+editableSQL, id, rule, a.Matched, a.SMS, a.Email, languages)
 		if err != nil {
 			return fmt.Errorf("save segment: %w", err)
 		}
@@ -121,7 +130,9 @@ func (s *PGStore) SaveSegment(ctx context.Context, id int64, r segment.Rule, a s
 	})
 }
 
-func (s *PGStore) SaveContent(ctx context.Context, id int64, c content.Content) error {
+// SaveContent writes every language's messages and removes languages that
+// are no longer given, in one transaction.
+func (s *PGStore) SaveContent(ctx context.Context, id int64, all map[string]content.Content) error {
 	return pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `
 			UPDATE campaigns SET status = 'content_ready', last_error = NULL, updated_at = now()
@@ -132,22 +143,30 @@ func (s *PGStore) SaveContent(ctx context.Context, id int64, c content.Content) 
 		if tag.RowsAffected() == 0 {
 			return s.conflict(ctx, tx, id)
 		}
-		for _, m := range messages(c) {
-			_, err := tx.Exec(ctx, `
-				INSERT INTO campaign_contents (campaign_id, channel, subject, body) VALUES ($1, $2, $3, $4)
-				ON CONFLICT (campaign_id, channel) DO UPDATE
-				SET subject = EXCLUDED.subject, body = EXCLUDED.body, human_edited = false,
-				    version = campaign_contents.version + 1, updated_at = now()`,
-				id, m.channel, m.subject, m.body)
-			if err != nil {
-				return fmt.Errorf("save %s content: %w", m.channel, err)
+		languages := make([]string, 0, len(all))
+		for lang, c := range all {
+			languages = append(languages, lang)
+			for _, m := range messages(c) {
+				_, err := tx.Exec(ctx, `
+					INSERT INTO campaign_contents (campaign_id, language, channel, subject, body) VALUES ($1, $2, $3, $4, $5)
+					ON CONFLICT (campaign_id, language, channel) DO UPDATE
+					SET subject = EXCLUDED.subject, body = EXCLUDED.body, human_edited = false,
+					    version = campaign_contents.version + 1, updated_at = now()`,
+					id, lang, m.channel, m.subject, m.body)
+				if err != nil {
+					return fmt.Errorf("save %s %s content: %w", lang, m.channel, err)
+				}
 			}
+		}
+		_, err = tx.Exec(ctx, "DELETE FROM campaign_contents WHERE campaign_id = $1 AND NOT (language = ANY($2))", id, languages)
+		if err != nil {
+			return fmt.Errorf("clear content of other languages: %w", err)
 		}
 		return nil
 	})
 }
 
-func (s *PGStore) EditContent(ctx context.Context, id int64, c content.Content, channel string) error {
+func (s *PGStore) EditContent(ctx context.Context, id int64, language string, c content.Content, channel string) error {
 	return pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
 		// Lock the campaign row so an approval cannot slip in between the
 		// status check and the content update.
@@ -167,14 +186,14 @@ func (s *PGStore) EditContent(ctx context.Context, id int64, c content.Content, 
 				continue
 			}
 			tag, err := tx.Exec(ctx, `
-				UPDATE campaign_contents SET subject = $3, body = $4, human_edited = true,
+				UPDATE campaign_contents SET subject = $4, body = $5, human_edited = true,
 				       version = version + 1, updated_at = now()
-				WHERE campaign_id = $1 AND channel = $2`, id, m.channel, m.subject, m.body)
+				WHERE campaign_id = $1 AND language = $2 AND channel = $3`, id, language, m.channel, m.subject, m.body)
 			if err != nil {
-				return fmt.Errorf("edit %s content: %w", channel, err)
+				return fmt.Errorf("edit %s %s content: %w", language, channel, err)
 			}
 			if tag.RowsAffected() == 0 {
-				return fmt.Errorf("%w: no %s content to edit", ErrConflict, channel)
+				return fmt.Errorf("%w: no %s %s content to edit", ErrConflict, language, channel)
 			}
 		}
 		_, err = tx.Exec(ctx, "UPDATE campaigns SET updated_at = now() WHERE id = $1", id)
@@ -214,14 +233,14 @@ func (s *PGStore) Approve(ctx context.Context, id int64, versions map[string]int
 		}
 
 		// The content must be exactly what the service validated.
-		rows, err := tx.Query(ctx, "SELECT channel, version FROM campaign_contents WHERE campaign_id = $1", id)
+		rows, err := tx.Query(ctx, "SELECT language, channel, version FROM campaign_contents WHERE campaign_id = $1", id)
 		if err != nil {
 			return fmt.Errorf("read content versions: %w", err)
 		}
 		current := map[string]int{}
-		var ch string
+		var lang, ch string
 		var v int
-		if _, err := pgx.ForEachRow(rows, []any{&ch, &v}, func() error { current[ch] = v; return nil }); err != nil {
+		if _, err := pgx.ForEachRow(rows, []any{&lang, &ch, &v}, func() error { current[lang+"."+ch] = v; return nil }); err != nil {
 			return fmt.Errorf("read content versions: %w", err)
 		}
 		if !maps.Equal(current, versions) {
@@ -260,9 +279,11 @@ func (s *PGStore) Approve(ctx context.Context, id int64, versions map[string]int
 }
 
 // enqueue inserts one queued message per recipient of channel: users the rule
-// matches who consented to it (segment.RecipientsSQL). ON CONFLICT DO NOTHING
-// makes it idempotent against UNIQUE(campaign_id, user_id, channel). The
-// messages are due at sendAt, or now (the database clock) if it is nil.
+// matches who consented to it (segment.RecipientsSQL) and whose language has
+// content, so the worker always finds the message to send. Each message
+// keeps the recipient's language. ON CONFLICT DO NOTHING makes it idempotent
+// against UNIQUE(campaign_id, user_id, channel). The messages are due at
+// sendAt, or now (the database clock) if it is nil.
 func enqueue(ctx context.Context, tx pgx.Tx, id int64, r segment.Rule, channel string, now time.Time, sendAt *time.Time) (int, error) {
 	recipients, args, err := segment.RecipientsSQL(r, channel, now)
 	if err != nil {
@@ -270,8 +291,9 @@ func enqueue(ctx context.Context, tx pgx.Tx, id int64, r segment.Rule, channel s
 	}
 	n := len(args)
 	sql := fmt.Sprintf(`
-		INSERT INTO messages (campaign_id, user_id, channel, next_attempt_at)
-		SELECT $%d::bigint, r.id, $%d::text, coalesce($%d::timestamptz, now()) FROM (%s) r
+		INSERT INTO messages (campaign_id, user_id, channel, language, next_attempt_at)
+		SELECT $%[1]d::bigint, r.id, $%[2]d::text, r.language, coalesce($%[3]d::timestamptz, now()) FROM (%[4]s) r
+		WHERE r.language IN (SELECT language FROM campaign_contents WHERE campaign_id = $%[1]d AND channel = $%[2]d)
 		ON CONFLICT (campaign_id, user_id, channel) DO NOTHING`, n+1, n+2, n+3, recipients)
 	tag, err := tx.Exec(ctx, sql, append(args, id, channel, sendAt)...)
 	if err != nil {
@@ -409,24 +431,42 @@ var variableColumns = map[string]string{
 	content.VarCity:      "u.city",
 }
 
-// MaxLengths measures the longest value of each variable among users the rule
-// matches who consented to at least one campaign channel. Measuring over both
-// channels at once is slightly conservative for single-channel limits.
-func (s *PGStore) MaxLengths(ctx context.Context, r segment.Rule, channels []string, now time.Time) (content.MaxLengths, error) {
+// MaxLengths measures the longest value of each variable per language among
+// users the rule matches who consented to at least one campaign channel.
+// Measuring over both channels at once is slightly conservative for
+// single-channel limits. Languages nobody reachable reads are absent.
+func (s *PGStore) MaxLengths(ctx context.Context, r segment.Rule, channels []string, now time.Time) (LanguageLengths, error) {
 	where, args, err := segment.ReachableWhere(r, channels, now)
 	if err != nil {
 		return nil, err
 	}
-	lens := content.MaxLengths{}
-	for _, name := range content.Variables {
-		var n int
-		sql := "SELECT coalesce(max(char_length(" + variableColumns[name] + ")), 0) FROM users u WHERE " + where
-		if err := s.db.QueryRow(ctx, sql, args...).Scan(&n); err != nil {
-			return nil, fmt.Errorf("measure %s: %w", name, err)
-		}
-		lens[name] = n
+	cols := make([]string, len(content.Variables))
+	for i, name := range content.Variables {
+		cols[i] = "max(char_length(" + variableColumns[name] + "))"
 	}
-	return lens, nil
+	rows, err := s.db.Query(ctx, "SELECT u.language, "+strings.Join(cols, ", ")+" FROM users u WHERE "+where+" GROUP BY 1", args...)
+	if err != nil {
+		return nil, fmt.Errorf("measure variables: %w", err)
+	}
+	out := LanguageLengths{}
+	var lang string
+	values := make([]int, len(content.Variables))
+	dest := []any{&lang}
+	for i := range values {
+		dest = append(dest, &values[i])
+	}
+	_, err = pgx.ForEachRow(rows, dest, func() error {
+		lens := content.MaxLengths{}
+		for i, name := range content.Variables {
+			lens[name] = values[i]
+		}
+		out[lang] = lens
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("measure variables: %w", err)
+	}
+	return out, nil
 }
 
 func (s *PGStore) Recorder(campaignID int64) llm.Recorder {
@@ -439,15 +479,18 @@ type recorder struct {
 }
 
 func (r *recorder) RecordAttempt(ctx context.Context, a llm.Attempt) error {
-	var errText *string
+	var errText, language *string
 	if a.Error != "" {
 		errText = &a.Error
 	}
+	if a.Language != "" {
+		language = &a.Language
+	}
 	_, err := r.db.Exec(ctx, `
-		INSERT INTO llm_generations (campaign_id, kind, model, prompt_version, attempt, raw_output, parsed,
+		INSERT INTO llm_generations (campaign_id, kind, model, prompt_version, language, attempt, raw_output, parsed,
 		                             validation_errors, valid, error, input_tokens, output_tokens, latency_ms)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
-		r.campaignID, a.Kind, a.Model, a.PromptVersion, a.Attempt, a.RawOutput, jsonb(a.Parsed),
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+		r.campaignID, a.Kind, a.Model, a.PromptVersion, language, a.Attempt, a.RawOutput, jsonb(a.Parsed),
 		jsonb(a.ValidationErrors), a.Valid, errText, a.InputTokens, a.OutputTokens, a.Latency.Milliseconds())
 	if err != nil {
 		return fmt.Errorf("record llm attempt: %w", err)

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/oguzkarcan/smart-campaign-composer/backend/internal/campaign"
@@ -299,5 +300,47 @@ func TestIntegrationScheduledCampaign(t *testing.T) {
 	}
 	if err := q.Release(ctx, jobs); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Each claimed message carries the content of its recipient's language.
+func TestIntegrationClaimUsesRecipientLanguage(t *testing.T) {
+	ctx := context.Background()
+	db := testDB(t)
+	c, total := approvedCampaign(t, db, "sms")
+	q := NewPGQueue(db)
+
+	bodies := map[string]string{}
+	rows, err := db.Query(ctx, "SELECT language, body FROM campaign_contents WHERE campaign_id = $1 AND channel = 'sms'", c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lang, body string
+	if _, err := pgx.ForEachRow(rows, []any{&lang, &body}, func() error { bodies[lang] = body; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if len(bodies) != 2 || bodies["tr"] == bodies["en"] {
+		t.Fatalf("sms content per language = %v", bodies)
+	}
+
+	jobs, err := q.Claim(ctx, "sms", total, 30*time.Second)
+	if err != nil || len(jobs) != total {
+		t.Fatalf("claimed %d of %d, err %v", len(jobs), total, err)
+	}
+	t.Cleanup(func() { q.Release(context.Background(), jobs) })
+	perLanguage := map[string]int{}
+	for _, j := range jobs {
+		var userLanguage string
+		if err := db.QueryRow(ctx, "SELECT u.language FROM messages m JOIN users u ON u.id = m.user_id WHERE m.id = $1",
+			j.MessageID).Scan(&userLanguage); err != nil {
+			t.Fatal(err)
+		}
+		if j.Language != userLanguage || j.Body != bodies[j.Language] {
+			t.Fatalf("job for a %s reader: language %s, body %q", userLanguage, j.Language, j.Body)
+		}
+		perLanguage[j.Language]++
+	}
+	if perLanguage["tr"] == 0 || perLanguage["en"] == 0 {
+		t.Fatalf("claimed per language %v, want both", perLanguage)
 	}
 }
