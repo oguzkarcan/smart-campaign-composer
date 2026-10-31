@@ -582,3 +582,144 @@ func TestIntegrationRecipientsSorted(t *testing.T) {
 		t.Fatalf("Turkish collation: Çağrı after %d, Ceren after %d, Zeynep after %d (err %v)", cagri, ceren, zeynep, err)
 	}
 }
+
+// scheduleForTest creates a campaign with content and schedules it an hour
+// ahead.
+func scheduleForTest(t *testing.T, svc *Service, db *pgxpool.Pool) Campaign {
+	t.Helper()
+	ctx := context.Background()
+	c := createForTest(t, svc, db, []string{"sms", "email"})
+	if _, err := svc.GenerateSegment(ctx, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.GenerateContent(ctx, c.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	sendAt := time.Now().Add(time.Hour)
+	c, err := svc.Approve(ctx, c.ID, &sendAt)
+	if err != nil || c.Status != StatusScheduled {
+		t.Fatalf("schedule: status %s, err %v", c.Status, err)
+	}
+	return c
+}
+
+func countMessages(t *testing.T, db *pgxpool.Pool, id int64, where string) int {
+	t.Helper()
+	var n int
+	if err := db.QueryRow(context.Background(), "SELECT count(*) FROM messages WHERE campaign_id = $1 AND "+where, id).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+func TestIntegrationCancelSchedule(t *testing.T) {
+	ctx := context.Background()
+	db := testDB(t)
+	svc := NewService(NewPGStore(db), &llm.Mock{})
+	c := scheduleForTest(t, svc, db)
+	if countMessages(t, db, c.ID, "true") == 0 {
+		t.Fatal("scheduling queued no messages")
+	}
+
+	c, err := svc.CancelSchedule(ctx, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Status != StatusContentReady || c.ScheduledAt != nil || c.ApprovedAt != nil || len(c.Contents) == 0 {
+		t.Fatalf("status %s, scheduled_at %v, approved_at %v, %d contents", c.Status, c.ScheduledAt, c.ApprovedAt, len(c.Contents))
+	}
+	if n := countMessages(t, db, c.ID, "true"); n != 0 {
+		t.Fatalf("%d messages left after cancelling", n)
+	}
+	if _, err := svc.CancelSchedule(ctx, c.ID); !errors.Is(err, ErrConflict) {
+		t.Fatalf("second cancel: err = %v", err)
+	}
+	// It can be approved again, now to send at once.
+	if c, err = svc.Approve(ctx, c.ID, nil); err != nil || c.Status != StatusSending {
+		t.Fatalf("approve again: status %s, err %v", c.Status, err)
+	}
+	if n := countMessages(t, db, c.ID, "next_attempt_at <= now()"); n == 0 {
+		t.Fatal("re-approval queued nothing due now")
+	}
+}
+
+// A message the worker already claimed may be at the provider; cancelling
+// then refuses and keeps everything, as does a schedule whose time has come.
+func TestIntegrationCancelScheduleAfterClaim(t *testing.T) {
+	ctx := context.Background()
+	db := testDB(t)
+	svc := NewService(NewPGStore(db), &llm.Mock{})
+
+	c := scheduleForTest(t, svc, db)
+	total := countMessages(t, db, c.ID, "true")
+	_, err := db.Exec(ctx, `UPDATE messages SET status = 'processing', attempts = 1, lease_until = now() + interval '30 seconds'
+		WHERE id = (SELECT min(id) FROM messages WHERE campaign_id = $1)`, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.CancelSchedule(ctx, c.ID); !errors.Is(err, ErrConflict) {
+		t.Fatalf("cancel with a claimed message: err = %v", err)
+	}
+	if n := countMessages(t, db, c.ID, "true"); n != total {
+		t.Fatalf("%d of %d messages left after a refused cancel", n, total)
+	}
+
+	c = scheduleForTest(t, svc, db)
+	if _, err := db.Exec(ctx, "UPDATE campaigns SET scheduled_at = now() - interval '1 second' WHERE id = $1", c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.CancelSchedule(ctx, c.ID); !errors.Is(err, ErrConflict) {
+		t.Fatalf("cancel after the scheduled time: err = %v", err)
+	}
+}
+
+func TestIntegrationSendScheduledNow(t *testing.T) {
+	ctx := context.Background()
+	db := testDB(t)
+	svc := NewService(NewPGStore(db), &llm.Mock{})
+	c := scheduleForTest(t, svc, db)
+	total := countMessages(t, db, c.ID, "true")
+	if n := countMessages(t, db, c.ID, "next_attempt_at <= now()"); n != 0 {
+		t.Fatalf("%d scheduled messages due early", n)
+	}
+
+	c, err := svc.SendScheduledNow(ctx, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Status != StatusSending || c.ScheduledAt == nil || c.ScheduledAt.After(time.Now()) {
+		t.Fatalf("status %s, scheduled_at %v", c.Status, c.ScheduledAt)
+	}
+	if n := countMessages(t, db, c.ID, "status = 'queued' AND next_attempt_at <= now()"); n != total {
+		t.Fatalf("%d of %d messages due now", n, total)
+	}
+	if _, err := svc.SendScheduledNow(ctx, c.ID); !errors.Is(err, ErrConflict) {
+		t.Fatalf("second send-now: err = %v", err)
+	}
+}
+
+// The worker's StartScheduled (same UPDATE as in delivery.PGQueue) wins the
+// race: both marketer actions then conflict and leave the messages alone.
+func TestIntegrationScheduleActionsAfterWorkerStarted(t *testing.T) {
+	ctx := context.Background()
+	db := testDB(t)
+	svc := NewService(NewPGStore(db), &llm.Mock{})
+	c := scheduleForTest(t, svc, db)
+	total := countMessages(t, db, c.ID, "true")
+	if _, err := db.Exec(ctx, "UPDATE campaigns SET status = 'sending', updated_at = now() WHERE id = $1 AND status = 'scheduled'", c.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := svc.SendScheduledNow(ctx, c.ID); !errors.Is(err, ErrConflict) {
+		t.Errorf("send-now: err = %v", err)
+	}
+	if _, err := svc.CancelSchedule(ctx, c.ID); !errors.Is(err, ErrConflict) {
+		t.Errorf("cancel: err = %v", err)
+	}
+	if n := countMessages(t, db, c.ID, "true"); n != total {
+		t.Errorf("%d of %d messages left", n, total)
+	}
+	if _, err := svc.CancelSchedule(ctx, 1<<40); !errors.Is(err, ErrNotFound) {
+		t.Errorf("unknown campaign: err = %v", err)
+	}
+}

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
-import { getProgress, watchProgress } from '@/api/client'
-import type { CampaignStatus, Channel, Progress } from '@/api/types'
+import { cancelSchedule, getCampaign, getProgress, sendScheduledNow, watchProgress } from '@/api/client'
+import type { Campaign, CampaignStatus, Channel, Progress } from '@/api/types'
 import { CHANNELS } from '@/api/types'
 import { channelLabel, formatDateTime, formatNumber } from '@/lib/format'
 import { locale, t } from '@/lib/i18n'
@@ -17,7 +17,7 @@ const props = defineProps<{
   scheduledAt?: string
   updatedAt: string
 }>()
-const emit = defineEmits<{ status: [status: CampaignStatus] }>()
+const emit = defineEmits<{ status: [status: CampaignStatus]; update: [campaign: Campaign] }>()
 
 const progress = ref<Progress | null>(null)
 const connection = ref<'connecting' | 'live' | 'reconnecting' | 'closed'>('connecting')
@@ -88,6 +88,35 @@ const done = computed(() => progress.value?.done ?? false)
 const scheduled = computed(() => progress.value?.status === 'scheduled')
 const countdown = computed(() => (props.scheduledAt ? formatCountdown(Date.parse(props.scheduledAt) - now.value, locale.value) : ''))
 
+// "Send now" or "Cancel schedule & edit" on a scheduled campaign. Either can
+// lose to the worker starting it at its time (a 409); the page then shows
+// the campaign as it really is.
+const acting = ref<'sendNow' | 'cancel' | null>(null)
+const actionError = ref<unknown>(null)
+
+async function act(action: 'sendNow' | 'cancel') {
+  if (acting.value || !props.scheduledAt) return
+  const question =
+    action === 'sendNow'
+      ? t('delivery.confirmSendNow', { n: formatNumber(totals.value.total), date: formatDateTime(props.scheduledAt) })
+      : t('delivery.confirmCancel')
+  if (!confirm(question)) return
+  acting.value = action
+  actionError.value = null
+  try {
+    const c = action === 'sendNow' ? await sendScheduledNow(props.campaignId) : await cancelSchedule(props.campaignId)
+    if (action === 'sendNow') finishedAt.value = null
+    emit('update', c)
+  } catch (e) {
+    actionError.value = e
+    getCampaign(props.campaignId)
+      .then((c) => emit('update', c))
+      .catch(() => {})
+  } finally {
+    acting.value = null
+  }
+}
+
 // Elapsed since sending started (approval, or the scheduled time), frozen
 // when the stream reports done. A campaign that was already finished when
 // opened ended at its last update.
@@ -127,15 +156,36 @@ const liveDot = computed(() => {
     <div v-if="!progress && !streamError" class="h-40 animate-pulse rounded-xl bg-slate-200" aria-busy="true" />
 
     <template v-if="progress">
+      <ErrorAlert v-if="actionError" :error="actionError" :title="t('delivery.actionError')" />
       <div
         v-if="scheduled && scheduledAt"
-        class="flex flex-wrap items-baseline justify-between gap-2 rounded-xl border border-cyan-200 bg-cyan-50 p-4 text-cyan-900"
+        class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-cyan-200 bg-cyan-50 p-4 text-cyan-900"
       >
-        <p>
-          <span class="font-medium">{{ t('delivery.scheduledFor', { date: formatDateTime(scheduledAt) }) }}</span>
-          <span class="text-cyan-800"> · {{ t('delivery.startsIn', { countdown }) }}</span>
-        </p>
-        <p class="text-sm text-cyan-800">{{ t('delivery.waiting', { n: formatNumber(totals.total) }) }}</p>
+        <div class="space-y-1">
+          <p>
+            <span class="font-medium">{{ t('delivery.scheduledFor', { date: formatDateTime(scheduledAt) }) }}</span>
+            <span class="text-cyan-800"> · {{ t('delivery.startsIn', { countdown }) }}</span>
+          </p>
+          <p class="text-sm text-cyan-800">{{ t('delivery.waiting', { n: formatNumber(totals.total) }) }}</p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <button
+            type="button"
+            :disabled="!!acting"
+            class="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+            @click="act('sendNow')"
+          >
+            {{ acting === 'sendNow' ? t('delivery.sending') : t('delivery.sendNow') }}
+          </button>
+          <button
+            type="button"
+            :disabled="!!acting"
+            class="rounded-lg border border-cyan-300 bg-white px-3 py-1.5 text-sm font-medium text-cyan-900 hover:bg-cyan-100 disabled:opacity-50"
+            @click="act('cancel')"
+          >
+            {{ acting === 'cancel' ? t('delivery.cancelling') : t('delivery.cancelSchedule') }}
+          </button>
+        </div>
       </div>
       <div class="space-y-4 rounded-xl border border-slate-200 bg-white p-5">
         <div class="flex flex-wrap items-end justify-between gap-4">

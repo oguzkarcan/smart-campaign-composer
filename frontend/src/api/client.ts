@@ -124,6 +124,18 @@ export function approveCampaign(id: number, sendAt?: string): Promise<Campaign> 
   return request('POST', `/campaigns/${id}/approve`, { body: sendAt ? { send_at: sendAt } : undefined })
 }
 
+// cancelSchedule takes a scheduled campaign back to editable messages; its
+// queued messages are removed. A 409 means sending already started.
+export function cancelSchedule(id: number): Promise<Campaign> {
+  return request('DELETE', `/campaigns/${id}/schedule`)
+}
+
+// sendScheduledNow starts a scheduled campaign now. A 409 means it is no
+// longer scheduled (sending already started, or the schedule was cancelled).
+export function sendScheduledNow(id: number): Promise<Campaign> {
+  return request('POST', `/campaigns/${id}/send-now`)
+}
+
 // getRecipients pages through the users the campaign's rule matches now,
 // sorted by a column (names and cities alphabetically, Turkish order).
 export function getRecipients(
@@ -219,6 +231,14 @@ export function watchProgress(id: number, handlers: ProgressHandlers): () => voi
   return () => source.close()
 }
 
-export function health(signal?: AbortSignal): Promise<{ status: string; checks: Record<string, string> }> {
+export interface Health {
+  status: string
+  checks: Record<string, string>
+  // The model generating audiences and messages: Claude, or canned answers.
+  llm_provider?: 'claude' | 'mock'
+  llm_model?: string
+}
+
+export function health(signal?: AbortSignal): Promise<Health> {
   return request('GET', '/health', { signal })
 }

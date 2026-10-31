@@ -188,6 +188,30 @@ func (s *MemStore) Approve(_ context.Context, id int64, versions map[string]int,
 	return nil
 }
 
+func (s *MemStore) CancelSchedule(_ context.Context, id int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, err := s.guard(id, campaign.StatusScheduled)
+	if err != nil {
+		return err
+	}
+	delete(s.Queued, id)
+	c.Status, c.ApprovedAt, c.ScheduledAt = campaign.StatusContentReady, nil, nil
+	return nil
+}
+
+func (s *MemStore) SendScheduledNow(_ context.Context, id int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, err := s.guard(id, campaign.StatusScheduled)
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	c.Status, c.ScheduledAt = campaign.StatusSending, &now
+	return nil
+}
+
 func (s *MemStore) Progress(_ context.Context, id int64) (campaign.Progress, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -163,6 +163,37 @@ func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, c)
 }
 
+// handleCancelSchedule serves DELETE /campaigns/{id}/schedule: a scheduled
+// campaign goes back to content_ready and its queued messages are removed.
+// A campaign that is no longer scheduled (the worker started it) is a 409.
+func (s *Server) handleCancelSchedule(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	c, err := s.campaigns.CancelSchedule(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, c)
+}
+
+// handleSendNow serves POST /campaigns/{id}/send-now: a scheduled campaign
+// starts sending now. A campaign that is no longer scheduled is a 409.
+func (s *Server) handleSendNow(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	c, err := s.campaigns.SendScheduledNow(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, c)
+}
+
 // handleRecipients serves GET /campaigns/{id}/recipients?limit=15&offset=0
 // &sort=city&order=desc: the users the campaign's rule matches now, with
 // their consent per channel. Read-only; membership comes only from the

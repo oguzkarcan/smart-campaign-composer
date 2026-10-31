@@ -208,7 +208,9 @@ All bodies are JSON. Errors are `{"error": "...", "problems": [{"path", "message
 | `GET /campaigns/{id}/recipients`       | Users the segment rule matches now, ordered by id: `{"recipients": [{"id", "first_name", "city", "language", "phone", "email", "sms_consent", "email_consent"}], "total", "limit", "offset"}`. `?limit=` (1–100, default 15), `?offset=`, `?sort=id\|first_name\|city\|language` (names and cities in Turkish alphabetical order), `?order=asc\|desc`; ties by id. Read-only; consent is reported, not filtered. `409` before the campaign has a segment. |
 | `GET /campaigns/{id}/progress`         | Delivery progress: message counts by status (`totals` and per channel), top failure reasons, `done`. |
 | `GET /campaigns/{id}/events`           | SSE for the live dashboard: a `progress` event now and on every change; ends after one with `"done": true` (close the `EventSource` then). |
-| `GET /health`                          | `200` when the database is reachable, `503` otherwise. |
+| `DELETE /campaigns/{id}/schedule`      | Cancels a scheduled campaign before it starts: its queued messages are removed and it goes back to `content_ready` (messages editable, approve again). `409` if it is no longer `scheduled`, its time has come, or a message was already claimed. |
+| `POST /campaigns/{id}/send-now`        | Starts a scheduled campaign now: status → `sending`, its queued messages become due now, `scheduled_at` becomes the start time. `409` if it is no longer `scheduled` (e.g. the worker started it). |
+| `GET /health`                          | `200` when the database is reachable, `503` otherwise. Also reports `llm_provider` (`claude` or `mock`) and `llm_model`, which the UI shows as a badge in the header. |
 | `GET /metrics`                         | Prometheus text format: messages by channel/status, campaigns by status, provider calls by outcome and code, provider and LLM latency, LLM generations and tokens. |
 
 Status codes: `400` bad input, `404` unknown campaign, `409` not allowed in the
@@ -281,7 +283,8 @@ approval → rate-limited, retried, idempotent delivery → live dashboard, plus
 `/health`, `/metrics`, a mock LLM and a mock provider, all from one
 `docker compose up`.
 
-Beyond the core scope (Day 6): scheduled sending (`send_at` on approval),
+Beyond the core scope (Day 6): scheduled sending (`send_at` on approval,
+with "send now" and "cancel schedule" while it waits),
 messages in each recipient's language (Turkish / English, generated,
 edited and sent per language), and a marketer-oriented UI with a `TR | EN`
 interface switch, light / dark themes, a step bar, SMS / email previews and
@@ -304,8 +307,9 @@ a read-only list of matching people to preview the messages as.
   is already safe across processes.
 - **Metrics are aggregates read at scrape time.** Fine at this scale; with
   millions of messages they would become counters or a summary table.
-- **No pause or cancel** of a scheduled or sending campaign, no
-  rescheduling, no campaign deletion, no quiet hours or per-recipient time
+- **No pause or cancel of a sending campaign** (a scheduled one can be
+  cancelled back to editing, or sent now), no direct rescheduling (cancel
+  and approve again), no campaign deletion, no quiet hours or per-recipient time
   zones. A scheduled campaign's recipients are fixed at approval, not at its
   send time.
 - **No authentication or multi-tenancy;** the API trusts its caller.

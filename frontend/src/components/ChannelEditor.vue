@@ -20,6 +20,8 @@ const props = defineProps<{
   readonly: boolean
   // A real matching user to preview as; otherwise a typical sample.
   person?: Person | null
+  // Text Claude is writing right now; shown read-only in place of the draft.
+  streaming?: { subject?: string; body?: string } | null
 }>()
 
 const emit = defineEmits<{
@@ -57,6 +59,24 @@ watch(
   { immediate: true },
 )
 
+// While streaming, the fields follow the text as it arrives.
+watch(
+  () => props.streaming,
+  (s) => {
+    if (!s) return
+    subject.value = s.subject ?? ''
+    body.value = s.body ?? ''
+  },
+  { immediate: true, deep: true },
+)
+
+// The preview fills in variables; while streaming, a variable still being
+// written ("{{first_") is held back instead of shown raw.
+function preview(text: string): string {
+  const shown = props.streaming ? text.replace(/\{\{[^}]*\}?$/, '') : text
+  return render(shown.trim(), values.value)
+}
+
 const isEmail = computed(() => props.channel === 'email')
 const subjectCheck = computed(() =>
   checkField(subject.value, props.limits['email.subject'] ?? 80, props.variableLengths, { singleLine: true }),
@@ -77,6 +97,8 @@ const showSaveAlert = computed(() => {
   return !!saveError.value && (serverProblems.value.length === 0 || serverProblems.value.some((p) => !fields.includes(p.path)))
 })
 function problemsFor(field: 'subject' | 'body', local: string[]): string[] {
+  // Half-written text (a variable cut in half) is checked once it is done.
+  if (props.streaming) return []
   const path = `${props.channel}.${field}`
   return [...local, ...serverProblems.value.filter((p) => p.path === path).map((p) => p.message)]
 }
@@ -131,7 +153,10 @@ function fieldClass(problems: string[]) {
   <article class="space-y-4 rounded-xl border border-slate-200 bg-white p-5">
     <header class="flex items-center justify-between gap-2">
       <h3 class="font-semibold">{{ channelLabel(channel) }}</h3>
-      <span class="text-xs text-slate-500">
+      <span v-if="streaming" class="flex items-center gap-1.5 text-xs text-indigo-700">
+        <span class="size-1.5 animate-pulse rounded-full bg-indigo-500" />{{ t('editor.writing') }}
+      </span>
+      <span v-else class="text-xs text-slate-500">
         {{ t('editor.version', { n: saved.version }) }}<template v-if="saved.human_edited"> · {{ t('editor.edited') }}</template>
         <template v-if="dirty"> · <span class="font-medium text-amber-600">{{ t('editor.unsaved') }}</span></template>
       </span>
@@ -150,7 +175,7 @@ function fieldClass(problems: string[]) {
         :id="`${language}-${channel}-subject`"
         v-model="subject"
         type="text"
-        :disabled="readonly || saving"
+        :disabled="readonly || saving || !!streaming"
         :class="fieldClass(problemsFor('subject', subjectCheck.problems))"
         class="mt-1"
       />
@@ -169,14 +194,14 @@ function fieldClass(problems: string[]) {
         ref="bodyField"
         v-model="body"
         :rows="isEmail ? 8 : 3"
-        :disabled="readonly || saving"
+        :disabled="readonly || saving || !!streaming"
         :class="fieldClass(problemsFor('body', bodyCheck.problems))"
         class="mt-1"
       />
       <ul class="mt-1 space-y-0.5 text-xs text-rose-600">
         <li v-for="p in problemsFor('body', bodyCheck.problems)" :key="p">{{ isEmail ? t('editor.body') : t('editor.message') }}: {{ p }}</li>
       </ul>
-      <div v-if="!readonly" class="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+      <div v-if="!readonly && !streaming" class="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
         <span>{{ t('editor.insert') }}</span>
         <button
           v-for="v in VARIABLES"
@@ -200,17 +225,17 @@ function fieldClass(problems: string[]) {
       </p>
       <EmailPreview
         v-if="isEmail"
-        :subject="render(subject.trim(), values)"
-        :body="render(body.trim(), values)"
+        :subject="preview(subject)"
+        :body="preview(body)"
         :recipient="`${sample.first_name} <${sample.email}>`"
         :class="{ 'opacity-60': skipped }"
       />
-      <SmsPreview v-else :text="render(body.trim(), values)" :recipient="sample.phone" :class="{ 'opacity-60': skipped }" />
+      <SmsPreview v-else :text="preview(body)" :recipient="sample.phone" :class="{ 'opacity-60': skipped }" />
     </div>
 
     <ErrorAlert v-if="showSaveAlert" :error="saveError" :title="t('editor.saveError')" />
 
-    <footer v-if="!readonly && dirty" class="flex gap-2">
+    <footer v-if="!readonly && !streaming && dirty" class="flex gap-2">
       <button
         type="button"
         :disabled="!valid || saving"

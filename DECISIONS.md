@@ -231,8 +231,23 @@ listed in the [README](README.md#unfinished-scope-and-known-gaps).
   sees the exact count that will be sent, and the worker's send-time checks
   (rendered length, header injection) still apply. The cost: someone who
   joins the segment or withdraws consent before the send time is not picked
-  up (listed as a known gap, together with pause/cancel; a status gate in the
-  claim would be the place for both).
+  up (listed as a known gap, together with pausing a sending campaign; a
+  status gate in the claim would be the place for both).
+- **Cancelling a schedule goes back to `content_ready`, not `draft`.** The
+  marketer cancels to change something; at `content_ready` the audience and
+  messages are kept, editable, and approvable again, while `draft` would
+  force regenerating both. In one transaction the campaign row is locked
+  (serializing with the worker's start and a concurrent send-now), the
+  campaign must still be `scheduled` with its time not yet come, and its
+  messages are deleted; if any of them was already claimed (it could be at
+  the provider) the transaction rolls back with a `409`. Approving again
+  computes the recipients afresh.
+- **"Send now" also makes the queued messages due now.** They were queued
+  due at `scheduled_at`, so flipping the status alone would leave them
+  waiting. The status change is guarded (`WHERE status = 'scheduled'`), so
+  it and the worker's own start cannot both win; the loser gets a `409` and
+  the UI reloads the campaign. `scheduled_at` is set to the moment sending
+  started, which is what the dashboard measures elapsed time from.
 - **Times are absolute.** The API takes RFC 3339 with an offset; the UI's
   date-time picker is in the browser's local time and is converted to UTC
   before sending, and shows the time back in local time.
@@ -311,6 +326,10 @@ listed in the [README](README.md#unfinished-scope-and-known-gaps).
   (`variable_lengths`, `limits`), measured at read time like an edit is, so the
   UI's live counter and the server cannot disagree. The UI does not need to know
   the placeholder minimum or the unknown-length fallback.
+- **`/health` names the model** (`llm_provider`, `llm_model`) so the header
+  can show whether Claude or the mock is writing. It is configuration rather
+  than a check, and it does not affect the status code; the UI already polls
+  `/health`, so no extra endpoint was needed.
 - **The mock LLM streams with a 40 ms pause per chunk** in the running app, so
   streaming is visible in a demo; tests use no delay.
 
@@ -423,12 +442,17 @@ listed in the [README](README.md#unfinished-scope-and-known-gaps).
   and its problems are shown under the matching field. Unlike the server, the
   browser keeps measuring after a broken variable, so the marketer sees every
   problem at once.
-- **The raw model output is streamed as-is** while content is generated (in a
-  collapsed "technical details" block under a progress card since Day 6), and
-  replaced by the validated editors when the `done` event arrives. A new
-  language or attempt number clears the preview and says which language is
-  being written or repaired.
-  Partial-JSON parsing to show nicer partial messages was not worth it.
+- **Messages appear field by field while they are generated.** A small
+  forgiving scanner (`src/lib/streamExtract.ts`) reads `sms.body`,
+  `email.subject` and `email.body` out of the cut-off JSON, decoding escapes
+  and holding back an escape or surrogate pair cut in half, and the same
+  editors and SMS / email previews show the text read-only as it grows (a
+  variable still being written is held back from the preview, and length
+  problems wait for the finished answer). The deltas already carry their
+  language, so the editor switches to the language being written; a new
+  language or repair attempt starts a fresh answer. The server's strict parse
+  stays the only judge: when `done` arrives the validated content replaces
+  the live view. The raw output is still one click away.
 - **Approval is blocked while an editor has unsaved or invalid changes,** so
   what is approved is exactly what the server has stored and validated; the
   confirm dialog shows how many messages per channel will be queued.

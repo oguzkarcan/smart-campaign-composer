@@ -307,6 +307,86 @@ func TestApproveScheduled(t *testing.T) {
 	}
 }
 
+func scheduledCampaign(t *testing.T, svc *campaign.Service) campaign.Campaign {
+	t.Helper()
+	c := readyCampaign(t, svc, []string{"sms", "email"})
+	sendAt := time.Now().Add(2 * time.Hour)
+	c, err := svc.Approve(context.Background(), c.ID, &sendAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+// Cancelling a schedule brings the campaign back to editable messages with
+// nothing queued, and it can be edited and approved again.
+func TestCancelSchedule(t *testing.T) {
+	svc, store := newTestService(&llm.Mock{})
+	ctx := context.Background()
+	c := scheduledCampaign(t, svc)
+
+	c, err := svc.CancelSchedule(ctx, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Status != campaign.StatusContentReady || c.ScheduledAt != nil || c.ApprovedAt != nil || len(c.Contents) == 0 {
+		t.Fatalf("status %s, scheduled_at %v, approved_at %v, %d contents", c.Status, c.ScheduledAt, c.ApprovedAt, len(c.Contents))
+	}
+	if store.Queued[c.ID] != 0 {
+		t.Fatalf("%d messages still queued", store.Queued[c.ID])
+	}
+	if _, err := svc.EditContent(ctx, c.ID, "tr", "sms", campaign.Edit{Body: "Merhaba {{first_name}}"}); err != nil {
+		t.Fatalf("edit after cancel: %v", err)
+	}
+	if c, err = svc.Approve(ctx, c.ID, nil); err != nil || c.Status != campaign.StatusSending {
+		t.Fatalf("approve after cancel: status %s, err %v", c.Status, err)
+	}
+	// A campaign that is sending cannot be cancelled.
+	if _, err := svc.CancelSchedule(ctx, c.ID); !errors.Is(err, campaign.ErrConflict) {
+		t.Fatalf("cancel while sending: err = %v", err)
+	}
+}
+
+func TestSendScheduledNow(t *testing.T) {
+	svc, store := newTestService(&llm.Mock{})
+	ctx := context.Background()
+	c := scheduledCampaign(t, svc)
+
+	before := time.Now()
+	c, err := svc.SendScheduledNow(ctx, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Status != campaign.StatusSending || c.ScheduledAt == nil || c.ScheduledAt.Before(before) || store.Queued[c.ID] != 280 {
+		t.Fatalf("status %s, scheduled_at %v, queued %d", c.Status, c.ScheduledAt, store.Queued[c.ID])
+	}
+	if _, err := svc.SendScheduledNow(ctx, c.ID); !errors.Is(err, campaign.ErrConflict) {
+		t.Fatalf("second send-now: err = %v", err)
+	}
+}
+
+// The worker may start a scheduled campaign just before the marketer acts;
+// both actions then conflict instead of changing a sending campaign.
+func TestScheduleActionsAfterWorkerStarted(t *testing.T) {
+	svc, store := newTestService(&llm.Mock{})
+	ctx := context.Background()
+	c := scheduledCampaign(t, svc)
+	store.SetStatus(c.ID, campaign.StatusSending)
+
+	if _, err := svc.CancelSchedule(ctx, c.ID); !errors.Is(err, campaign.ErrConflict) {
+		t.Errorf("cancel: err = %v", err)
+	}
+	if _, err := svc.SendScheduledNow(ctx, c.ID); !errors.Is(err, campaign.ErrConflict) {
+		t.Errorf("send now: err = %v", err)
+	}
+	if store.Queued[c.ID] != 280 {
+		t.Errorf("queued %d, want 280", store.Queued[c.ID])
+	}
+	if _, err := svc.CancelSchedule(ctx, 999); !errors.Is(err, campaign.ErrNotFound) {
+		t.Errorf("unknown campaign: err = %v", err)
+	}
+}
+
 func TestApproveSendAtMustBeInRange(t *testing.T) {
 	svc, store := newTestService(&llm.Mock{})
 	ctx := context.Background()

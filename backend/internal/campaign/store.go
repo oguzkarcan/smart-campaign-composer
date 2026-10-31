@@ -278,6 +278,76 @@ func (s *PGStore) Approve(ctx context.Context, id int64, versions map[string]int
 	})
 }
 
+func (s *PGStore) CancelSchedule(ctx context.Context, id int64) error {
+	return pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
+		// The row lock serializes with the worker's StartScheduled and with
+		// a concurrent send-now or cancel.
+		var (
+			status string
+			due    bool
+		)
+		err := tx.QueryRow(ctx, "SELECT status, coalesce(scheduled_at <= now(), false) FROM campaigns WHERE id = $1 FOR UPDATE", id).
+			Scan(&status, &due)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("lock campaign: %w", err)
+		}
+		if status != StatusScheduled {
+			return fmt.Errorf("%w: only a scheduled campaign can be cancelled (status %s)", ErrConflict, status)
+		}
+		if due {
+			return fmt.Errorf("%w: the scheduled time has come and sending is starting", ErrConflict)
+		}
+		// Messages are due at scheduled_at, so the worker should not have
+		// claimed any; if it did, one may be at the provider already. The
+		// DELETE waits for a concurrent claim, and rolls back if it took one.
+		var claimed int
+		err = tx.QueryRow(ctx, `
+			WITH removed AS (DELETE FROM messages WHERE campaign_id = $1 RETURNING status, attempts)
+			SELECT count(*) FILTER (WHERE status <> 'queued' OR attempts > 0) FROM removed`, id).Scan(&claimed)
+		if err != nil {
+			return fmt.Errorf("remove queued messages: %w", err)
+		}
+		if claimed > 0 {
+			return fmt.Errorf("%w: %d messages are already being sent", ErrConflict, claimed)
+		}
+		_, err = tx.Exec(ctx, `
+			UPDATE campaigns SET status = 'content_ready', approved_at = NULL, scheduled_at = NULL, updated_at = now()
+			WHERE id = $1`, id)
+		if err != nil {
+			return fmt.Errorf("cancel schedule: %w", err)
+		}
+		return nil
+	})
+}
+
+// SendScheduledNow does what the worker's StartScheduled does when the time
+// comes, and also makes the messages due now (they were queued due at
+// scheduled_at). scheduled_at becomes the time sending started, which the
+// dashboard measures elapsed time from.
+func (s *PGStore) SendScheduledNow(ctx context.Context, id int64) error {
+	return pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `
+			UPDATE campaigns SET status = 'sending', scheduled_at = now(), updated_at = now()
+			WHERE id = $1 AND status = 'scheduled'`, id)
+		if err != nil {
+			return fmt.Errorf("send scheduled campaign: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return s.conflict(ctx, tx, id)
+		}
+		_, err = tx.Exec(ctx, `
+			UPDATE messages SET next_attempt_at = now(), updated_at = now()
+			WHERE campaign_id = $1 AND status = 'queued' AND next_attempt_at > now()`, id)
+		if err != nil {
+			return fmt.Errorf("make messages due: %w", err)
+		}
+		return nil
+	})
+}
+
 // enqueue inserts one queued message per recipient of channel: users the rule
 // matches who consented to it (segment.RecipientsSQL) and whose language has
 // content, so the worker always finds the message to send. Each message

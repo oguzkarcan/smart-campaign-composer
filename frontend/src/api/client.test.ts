@@ -1,5 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, editContent, generateContent, getCampaign, getRecipients, TIMED_OUT, UNREACHABLE } from './client'
+import {
+  ApiError,
+  cancelSchedule,
+  editContent,
+  generateContent,
+  getCampaign,
+  getRecipients,
+  sendScheduledNow,
+  TIMED_OUT,
+  UNREACHABLE,
+} from './client'
 
 function stubFetch(impl: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>) {
   vi.stubGlobal('fetch', vi.fn(impl))
@@ -94,6 +104,26 @@ describe('content endpoints', () => {
     const c = await generateContent(1, { onDelta: (lang, attempt, text) => deltas.push(`${lang}${attempt}:${text}`) })
     expect(deltas).toEqual(['tr1:Mer', 'en1:Hi'])
     expect(c.id).toBe(1)
+  })
+})
+
+describe('schedule actions', () => {
+  it('cancels with DELETE and sends now with POST', async () => {
+    const calls: string[] = []
+    stubFetch(async (input, init) => {
+      calls.push(`${init?.method} ${String(input)}`)
+      return Response.json({ id: 7, status: 'content_ready' })
+    })
+    await cancelSchedule(7)
+    await sendScheduledNow(7)
+    expect(calls).toEqual(['DELETE /api/campaigns/7/schedule', 'POST /api/campaigns/7/send-now'])
+  })
+
+  it('reports a lost race as a 409', async () => {
+    stubFetch(async () => Response.json({ error: 'not allowed in the campaign\'s current status (status sending)' }, { status: 409 }))
+    const err = await errorOf(sendScheduledNow(7))
+    expect(err.status).toBe(409)
+    expect(err.message).toMatch(/status sending/)
   })
 })
 

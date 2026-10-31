@@ -2,11 +2,12 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { approveCampaign, generateContent } from '@/api/client'
-import type { Campaign, Content, Language, Person } from '@/api/types'
+import type { Campaign, Channel, Content, Language, Person } from '@/api/types'
 import { channelLabel, formatDateTime, formatNumber, languageLabel } from '@/lib/format'
 import { t } from '@/lib/i18n'
 import { languageTabs } from '@/lib/languages'
 import { defaultSchedule, MAX_SCHEDULE_DAYS, parseSchedule, toLocalInput } from '@/lib/schedule'
+import { extractPartial } from '@/lib/streamExtract'
 import ChannelEditor from './ChannelEditor.vue'
 import ErrorAlert from './ErrorAlert.vue'
 
@@ -18,6 +19,15 @@ const attempt = ref(1)
 const streamLanguage = ref<Language | null>(null)
 const streamed = ref('')
 const generateError = ref<unknown>(null)
+// The fields of the answer being streamed, for the live editors and previews.
+const live = computed(() => extractPartial(streamed.value))
+function liveFields(ch: Channel): { subject?: string; body?: string } {
+  return ch === 'sms' ? { body: live.value.sms?.body } : { subject: live.value.email?.subject, body: live.value.email?.body }
+}
+// The live editors start from an empty message; only the streamed text shows.
+function liveSaved(lang: Language, ch: Channel): Content {
+  return { language: lang, channel: ch, subject: '', body: '', human_edited: false, version: 0, updated_at: '' }
+}
 let controller: AbortController | undefined
 
 const approving = ref(false)
@@ -218,7 +228,66 @@ async function approve() {
       </details>
     </div>
 
-    <template v-else-if="!contents.length">
+    <template v-if="contents.length || (generating && streamLanguage)">
+      <div v-if="tabs.length > 1" role="tablist" :aria-label="t('messages.tabs')" class="flex flex-wrap gap-2">
+        <button
+          v-for="tab in tabs"
+          :key="tab.language"
+          type="button"
+          role="tab"
+          :aria-selected="activeLanguage === tab.language"
+          :disabled="generating"
+          class="flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium"
+          :class="
+            activeLanguage === tab.language
+              ? 'border-indigo-600 bg-indigo-50 text-indigo-800'
+              : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-60 disabled:hover:bg-white'
+          "
+          @click="activeLanguage = tab.language"
+        >
+          {{ languageLabel(tab.language) }}
+          <span class="font-normal text-slate-500 tabular-nums">{{ t('messages.tabCount', { n: formatNumber(tab.recipients) }) }}</span>
+          <template v-if="generating">
+            <span v-if="tab.language === streamLanguage" class="size-2 animate-pulse rounded-full bg-indigo-500" />
+          </template>
+          <span v-else-if="!tab.hasContent" class="size-2 rounded-full bg-rose-500" :title="t('messages.noMessagesYet')" />
+          <span
+            v-else-if="tabState(tab.language) === 'invalid'"
+            class="size-2 rounded-full bg-rose-500"
+            :title="t('messages.hasProblems')"
+          />
+          <span
+            v-else-if="tabState(tab.language) === 'dirty'"
+            class="size-2 rounded-full bg-amber-500"
+            :title="t('messages.unsaved')"
+          />
+        </button>
+      </div>
+      <p v-if="tabs.length > 1" class="text-sm text-slate-500">{{ t('messages.ownLanguage') }}</p>
+    </template>
+
+    <!-- The answer being written, field by field, in the same editors and previews. -->
+    <div
+      v-if="generating && streamLanguage"
+      class="grid gap-4"
+      :class="{ 'lg:grid-cols-2': campaign.channels.length > 1 }"
+    >
+      <ChannelEditor
+        v-for="ch in campaign.channels"
+        :key="`live.${streamLanguage}.${ch}`"
+        :campaign-id="campaign.id"
+        :language="streamLanguage"
+        :channel="ch"
+        :saved="liveSaved(streamLanguage, ch)"
+        :streaming="liveFields(ch)"
+        :variable-lengths="campaign.variable_lengths?.[streamLanguage] ?? {}"
+        :limits="campaign.limits"
+        readonly
+        :person="previewPerson?.language === streamLanguage ? previewPerson : null"
+      />
+    </div>
+
+    <template v-if="!generating && !contents.length">
       <div v-if="canGenerate" class="rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center">
         <template v-if="reachable > 0">
           <p class="text-slate-600">{{ t('messages.next') }}</p>
@@ -236,38 +305,6 @@ async function approve() {
     </template>
 
     <template v-if="contents.length && !generating">
-      <div v-if="tabs.length > 1" role="tablist" :aria-label="t('messages.tabs')" class="flex flex-wrap gap-2">
-        <button
-          v-for="tab in tabs"
-          :key="tab.language"
-          type="button"
-          role="tab"
-          :aria-selected="activeLanguage === tab.language"
-          class="flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium"
-          :class="
-            activeLanguage === tab.language
-              ? 'border-indigo-600 bg-indigo-50 text-indigo-800'
-              : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
-          "
-          @click="activeLanguage = tab.language"
-        >
-          {{ languageLabel(tab.language) }}
-          <span class="font-normal text-slate-500 tabular-nums">{{ t('messages.tabCount', { n: formatNumber(tab.recipients) }) }}</span>
-          <span v-if="!tab.hasContent" class="size-2 rounded-full bg-rose-500" :title="t('messages.noMessagesYet')" />
-          <span
-            v-else-if="tabState(tab.language) === 'invalid'"
-            class="size-2 rounded-full bg-rose-500"
-            :title="t('messages.hasProblems')"
-          />
-          <span
-            v-else-if="tabState(tab.language) === 'dirty'"
-            class="size-2 rounded-full bg-amber-500"
-            :title="t('messages.unsaved')"
-          />
-        </button>
-      </div>
-      <p v-if="tabs.length > 1" class="text-sm text-slate-500">{{ t('messages.ownLanguage') }}</p>
-
       <div
         v-if="previewPerson"
         class="flex flex-wrap items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 py-1 pr-1 pl-3 text-sm text-indigo-800"

@@ -41,9 +41,15 @@ func run() error {
 	}
 	defer pool.Close()
 
+	model := "mock"
+	if cfg.LLMMode == config.LLMModeClaude {
+		model = cfg.ClaudeModel
+	}
+	api := httpapi.New(pool, campaign.NewService(campaign.NewPGStore(pool), newLLM(cfg)), metrics.NewPG(pool))
+	api.LLM = httpapi.LLMInfo{Provider: cfg.LLMMode, Model: model}
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpapi.New(pool, campaign.NewService(campaign.NewPGStore(pool), newLLM(cfg)), metrics.NewPG(pool)).Handler(),
+		Handler:           api.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -54,10 +60,6 @@ func run() error {
 		_ = srv.Shutdown(shutdownCtx)
 	}()
 
-	model := "mock"
-	if cfg.LLMMode == config.LLMModeClaude {
-		model = cfg.ClaudeModel
-	}
 	slog.Info("api listening", "addr", cfg.HTTPAddr, "llm_mode", cfg.LLMMode, "model", model)
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err

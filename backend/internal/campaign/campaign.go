@@ -161,6 +161,14 @@ type Store interface {
 	// returns ErrConflict if the content is no longer at the validated
 	// versions ("tr.sms" → version) or nobody can be reached.
 	Approve(ctx context.Context, id int64, versions map[string]int, now time.Time, sendAt *time.Time) error
+	// CancelSchedule moves a scheduled campaign back to content_ready and
+	// removes its queued messages, in one transaction. It returns
+	// ErrConflict if the campaign is no longer scheduled, its time has come,
+	// or any of its messages was already claimed.
+	CancelSchedule(ctx context.Context, id int64) error
+	// SendScheduledNow moves a scheduled campaign to sending and makes its
+	// queued messages due now; ErrConflict if it is no longer scheduled.
+	SendScheduledNow(ctx context.Context, id int64) error
 	// Progress counts the campaign's messages; ErrNotFound if it does not exist.
 	Progress(ctx context.Context, id int64) (Progress, error)
 	// List returns campaigns newest first, with ids below before (0: no bound).
@@ -433,6 +441,27 @@ func (s *Service) Approve(ctx context.Context, id int64, sendAt *time.Time) (Cam
 		versions[m.Language+"."+m.Channel] = m.Version
 	}
 	if err := s.store.Approve(ctx, id, versions, now, sendAt); err != nil {
+		return Campaign{}, err
+	}
+	return s.Get(ctx, id)
+}
+
+// CancelSchedule takes a scheduled campaign back before it starts: its
+// queued messages are removed and it returns to content_ready, so the
+// marketer can edit the messages and approve again (recipients are computed
+// again then). A campaign the worker already started is a conflict.
+func (s *Service) CancelSchedule(ctx context.Context, id int64) (Campaign, error) {
+	if err := s.store.CancelSchedule(ctx, id); err != nil {
+		return Campaign{}, err
+	}
+	return s.Get(ctx, id)
+}
+
+// SendScheduledNow starts a scheduled campaign now instead of at its
+// scheduled time. The recipients and content stay as approved. A campaign
+// that already started is a conflict.
+func (s *Service) SendScheduledNow(ctx context.Context, id int64) (Campaign, error) {
+	if err := s.store.SendScheduledNow(ctx, id); err != nil {
 		return Campaign{}, err
 	}
 	return s.Get(ctx, id)

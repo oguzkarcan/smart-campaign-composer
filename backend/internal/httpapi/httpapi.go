@@ -29,10 +29,18 @@ type MetricsWriter interface {
 	WriteMetrics(ctx context.Context, w io.Writer) error
 }
 
+// LLMInfo names the model the API generates with, for the UI's badge.
+type LLMInfo struct {
+	Provider string `json:"llm_provider"` // "claude" or "mock"
+	Model    string `json:"llm_model"`
+}
+
 type Server struct {
 	db        Pinger
 	campaigns *campaign.Service
 	metrics   MetricsWriter
+	// LLM is reported by /health; it is configuration, not a health check.
+	LLM LLMInfo
 
 	// eventsInterval is how often a campaign event stream checks for changes.
 	eventsInterval time.Duration
@@ -53,6 +61,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /campaigns/{id}/content", s.handleGenerateContent)
 	mux.HandleFunc("PUT /campaigns/{id}/content/{language}/{channel}", s.handleEditContent)
 	mux.HandleFunc("POST /campaigns/{id}/approve", s.handleApprove)
+	mux.HandleFunc("DELETE /campaigns/{id}/schedule", s.handleCancelSchedule)
+	mux.HandleFunc("POST /campaigns/{id}/send-now", s.handleSendNow)
 	mux.HandleFunc("GET /campaigns/{id}/recipients", s.handleRecipients)
 	mux.HandleFunc("GET /campaigns/{id}/progress", s.handleProgress)
 	mux.HandleFunc("GET /campaigns/{id}/events", s.handleEvents)
@@ -62,6 +72,7 @@ func (s *Server) Handler() http.Handler {
 type healthResponse struct {
 	Status string            `json:"status"`
 	Checks map[string]string `json:"checks"`
+	LLMInfo
 }
 
 // handleHealth returns 200 when the API can reach its database and 503
@@ -70,7 +81,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), healthTimeout)
 	defer cancel()
 
-	resp := healthResponse{Status: "ok", Checks: map[string]string{"database": "ok"}}
+	resp := healthResponse{Status: "ok", Checks: map[string]string{"database": "ok"}, LLMInfo: s.LLM}
 	status := http.StatusOK
 	if err := s.db.Ping(ctx); err != nil {
 		slog.Warn("health check failed", "check", "database", "err", err)

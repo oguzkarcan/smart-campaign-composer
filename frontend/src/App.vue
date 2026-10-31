@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
-import { health } from './api/client'
+import { type Health, health } from './api/client'
 import { LOCALES, locale, setLocale, t } from './lib/i18n'
 import { setTheme, theme, THEMES } from './lib/theme'
 
 type ApiState = 'checking' | 'ok' | 'down'
 const apiState = ref<ApiState>('checking')
+// Which model writes audiences and messages, from the last health check.
+const llm = ref<Pick<Health, 'llm_provider' | 'llm_model'> | null>(null)
 
 const HEALTH_INTERVAL_MS = 15_000
 let timer: ReturnType<typeof setInterval> | undefined
@@ -14,6 +16,7 @@ async function checkHealth() {
   try {
     const h = await health(AbortSignal.timeout(5_000))
     apiState.value = h.status === 'ok' ? 'ok' : 'down'
+    if (h.llm_provider) llm.value = { llm_provider: h.llm_provider, llm_model: h.llm_model }
   } catch {
     apiState.value = 'down'
   }
@@ -53,6 +56,23 @@ const stateDot: Record<ApiState, string> = { checking: 'bg-slate-300', ok: 'bg-e
           </RouterLink>
         </nav>
         <div class="flex shrink-0 items-center gap-3">
+          <span
+            v-if="llm"
+            class="flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium"
+            :class="
+              llm.llm_provider === 'claude'
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                : 'border-amber-200 bg-amber-50 text-amber-800'
+            "
+            :title="llm.llm_provider === 'claude' ? t('llm.claudeTitle', { model: llm.llm_model ?? '' }) : t('llm.mockTitle')"
+          >
+            <span class="size-2 rounded-full" :class="llm.llm_provider === 'claude' ? 'bg-emerald-500' : 'bg-amber-500'" />
+            <template v-if="llm.llm_provider === 'claude'">
+              {{ t('llm.claude') }}
+              <span class="hidden font-mono font-normal lg:inline">({{ llm.llm_model }})</span>
+            </template>
+            <template v-else>{{ t('llm.mock') }}</template>
+          </span>
           <span class="flex items-center gap-2 text-sm text-slate-500" role="status" :title="t(stateKeys[apiState])">
             <span class="size-2 rounded-full" :class="stateDot[apiState]" />
             <span class="sr-only md:not-sr-only">{{ t(stateKeys[apiState]) }}</span>

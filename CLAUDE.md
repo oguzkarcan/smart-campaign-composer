@@ -144,3 +144,12 @@ segment DSL + validator + SQL compiler + consent.
 - [x] 6. Light / dark theme toggle next to `TR | EN` (`localStorage`, default
   `prefers-color-scheme`, translated), clean contrast in every view, checked
   with headless browser screenshots in both modes.
+
+### Day 7 – Schedule actions, live preview, model badge
+- [x] 1. Scheduled campaigns: `DELETE /campaigns/{id}/schedule` (back to
+  `content_ready`, queued messages removed) and `POST /campaigns/{id}/send-now`
+  (messages due now), `409` when the worker already started it; "Send now" /
+  "Cancel schedule & edit" in the countdown banner; field-by-field live preview
+  while content streams (`lib/streamExtract.ts`); `llm_provider`/`llm_model` in
+  `/health` and a Claude / Mock AI badge in the header. Unit, handler and
+  integration tests; README/DECISIONS updated.

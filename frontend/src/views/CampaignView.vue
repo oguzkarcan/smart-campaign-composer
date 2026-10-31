@@ -48,13 +48,16 @@ const notFound = computed(() => loadError.value instanceof ApiError && loadError
 const rule = computed(() => (campaign.value?.segment_rule ? describeRule(campaign.value.segment_rule, locale.value) : null))
 const delivering = computed(() => !!campaign.value && !editableStatuses.includes(campaign.value.status))
 
-// Approval happens at the bottom of the page; bring the new dashboard into view.
-watch(delivering, async (now, before) => {
-  if (now && before === false) {
+// Approval happens at the bottom of the page; bring the new dashboard into
+// view. Cancelling a schedule goes back to the messages.
+watch(
+  () => [campaign.value?.id, delivering.value] as const,
+  async ([id, now], [prevId, before]) => {
+    if (id === undefined || id !== prevId || now === before) return // a load, not a change
     await nextTick()
-    document.getElementById('delivery-heading')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }
-})
+    document.getElementById(now ? 'delivery-heading' : 'content-heading')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  },
+)
 
 // The live stream carries status changes (sending → completed).
 function onDeliveryStatus(status: CampaignStatus) {
@@ -133,6 +136,7 @@ async function regenerate() {
         :scheduled-at="campaign.scheduled_at"
         :updated-at="campaign.updated_at"
         @status="onDeliveryStatus"
+        @update="campaign = $event"
       />
 
       <section class="space-y-4" aria-labelledby="audience-heading">

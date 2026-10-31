@@ -343,6 +343,51 @@ func TestApproveScheduled(t *testing.T) {
 	}
 }
 
+func TestScheduleActions(t *testing.T) {
+	h, store := newTestAPI(&llm.Mock{})
+	schedule := func() {
+		t.Helper()
+		create(t, h, `["sms"]`)
+		do(t, h, "POST", "/campaigns/1/content", "")
+		sendAt := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+		if w := do(t, h, "POST", "/campaigns/1/approve", `{"send_at": "`+sendAt+`"}`); w.Code != http.StatusOK {
+			t.Fatalf("approve: %d %s", w.Code, w.Body)
+		}
+	}
+	schedule()
+
+	w := do(t, h, "DELETE", "/campaigns/1/schedule", "")
+	if c := decodeBody[campaign.Campaign](t, w); w.Code != http.StatusOK || c.Status != campaign.StatusContentReady || c.ScheduledAt != nil {
+		t.Fatalf("cancel: %d %s", w.Code, w.Body)
+	}
+	if store.Queued[1] != 0 {
+		t.Fatalf("cancel left %d messages queued", store.Queued[1])
+	}
+	// Not scheduled any more.
+	if w := do(t, h, "DELETE", "/campaigns/1/schedule", ""); w.Code != http.StatusConflict {
+		t.Fatalf("second cancel: %d %s", w.Code, w.Body)
+	}
+	if w := do(t, h, "POST", "/campaigns/1/send-now", ""); w.Code != http.StatusConflict {
+		t.Fatalf("send-now on content_ready: %d %s", w.Code, w.Body)
+	}
+
+	sendAt := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	do(t, h, "POST", "/campaigns/1/approve", `{"send_at": "`+sendAt+`"}`)
+	w = do(t, h, "POST", "/campaigns/1/send-now", "")
+	if c := decodeBody[campaign.Campaign](t, w); w.Code != http.StatusOK || c.Status != campaign.StatusSending {
+		t.Fatalf("send-now: %d %s", w.Code, w.Body)
+	}
+	// Already sending: the worker (or another tab) got there first.
+	for _, req := range [][2]string{{"POST", "/campaigns/1/send-now"}, {"DELETE", "/campaigns/1/schedule"}} {
+		if w := do(t, h, req[0], req[1], ""); w.Code != http.StatusConflict || decodeBody[errorResponse](t, w).Error == "" {
+			t.Errorf("%s %s while sending: %d %s", req[0], req[1], w.Code, w.Body)
+		}
+	}
+	if w := do(t, h, "POST", "/campaigns/42/send-now", ""); w.Code != http.StatusNotFound {
+		t.Errorf("unknown campaign: %d", w.Code)
+	}
+}
+
 // send_at is optional: null means now, like no body at all.
 func TestApproveSendAtNull(t *testing.T) {
 	h, _ := newTestAPI(&llm.Mock{})
