@@ -6,11 +6,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/oguzkarcan/smart-campaign-composer/backend/internal/content"
@@ -175,5 +177,88 @@ func TestIntegrationWritesStopAfterApproval(t *testing.T) {
 	}
 	if got, _ := svc.Get(ctx, c.ID); got.Contents[0].Body != c.Contents[0].Body {
 		t.Fatal("approved content changed")
+	}
+}
+
+func TestIntegrationApproveEnqueues(t *testing.T) {
+	ctx := context.Background()
+	db := testDB(t)
+	svc := NewService(NewPGStore(db), &llm.Mock{})
+	c := createForTest(t, svc, db, []string{"sms", "email"})
+	if _, err := svc.GenerateSegment(ctx, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.GenerateContent(ctx, c.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	c, err := svc.Approve(ctx, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Status != StatusSending || c.ApprovedAt == nil {
+		t.Fatalf("status %s, approved_at %v", c.Status, c.ApprovedAt)
+	}
+
+	// One queued message per user and channel, matching the audience counts,
+	// and only to users who consented to that channel.
+	var sms, email, queued, unconsented int
+	err = db.QueryRow(ctx, `
+		SELECT count(*) FILTER (WHERE m.channel = 'sms'),
+		       count(*) FILTER (WHERE m.channel = 'email'),
+		       count(*) FILTER (WHERE m.status = 'queued' AND m.attempts = 0),
+		       count(*) FILTER (WHERE (m.channel = 'sms' AND NOT u.sms_opt_in) OR (m.channel = 'email' AND NOT u.email_opt_in))
+		FROM messages m JOIN users u ON u.id = m.user_id WHERE m.campaign_id = $1`, c.ID).
+		Scan(&sms, &email, &queued, &unconsented)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sms != c.Audience.SMS || email != c.Audience.Email || queued != sms+email || unconsented != 0 || sms == 0 || email == 0 {
+		t.Fatalf("sms %d (want %d), email %d (want %d), queued %d, unconsented %d",
+			sms, c.Audience.SMS, email, c.Audience.Email, queued, unconsented)
+	}
+
+	// Enqueueing again adds nothing.
+	err = pgx.BeginFunc(ctx, db, func(tx pgx.Tx) error {
+		n, err := enqueue(ctx, tx, c.ID, *c.Rule, "sms", time.Now())
+		if err == nil && n != 0 {
+			err = fmt.Errorf("re-enqueue inserted %d messages", n)
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Approve(ctx, c.ID); !errors.Is(err, ErrConflict) {
+		t.Fatalf("second approve: err = %v", err)
+	}
+}
+
+func TestIntegrationApproveUnreachableAudience(t *testing.T) {
+	ctx := context.Background()
+	db := testDB(t)
+	svc := NewService(NewPGStore(db), &llm.Mock{})
+	c := createForTest(t, svc, db, []string{"sms"})
+	if _, err := svc.GenerateSegment(ctx, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.GenerateContent(ctx, c.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	// The audience is recomputed at approval; simulate it having emptied.
+	_, err := db.Exec(ctx, `UPDATE campaigns SET segment_rule = '{"match": "all", "conditions": [{"field": "city", "op": "eq", "value": "Nowhere"}]}' WHERE id = $1`, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := svc.Approve(ctx, c.ID); !errors.Is(err, ErrConflict) {
+		t.Fatalf("err = %v, want ErrConflict", err)
+	}
+	var n int
+	if err := db.QueryRow(ctx, "SELECT count(*) FROM messages WHERE campaign_id = $1", c.ID).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("messages = %d, err %v", n, err)
+	}
+	if c, _ = svc.Get(ctx, c.ID); c.Status != StatusContentReady || c.ApprovedAt != nil {
+		t.Fatalf("status %s, approved_at %v", c.Status, c.ApprovedAt)
 	}
 }

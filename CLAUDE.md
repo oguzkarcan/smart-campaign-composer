@@ -79,7 +79,7 @@ segment DSL + validator + SQL compiler + consent.
   Handler tests with the mock LLM. Update README/DECISIONS.
 
 ### Day 3 – Delivery pipeline
-- [ ] 1. Approval: `POST /campaigns/{id}/approve` re-validates content, locks it,
+- [x] 1. Approval: `POST /campaigns/{id}/approve` re-validates content, locks it,
   enqueues messages with `INSERT … SELECT` (rule AND consent AND channel in
   campaign channels) `ON CONFLICT DO NOTHING`; status `approved`→`sending`.
 - [ ] 2. `internal/delivery` provider client: render at send time, `messages.id`

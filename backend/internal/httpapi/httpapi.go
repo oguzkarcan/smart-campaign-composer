@@ -35,6 +35,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /campaigns/{id}/segment", s.handleGenerateSegment)
 	mux.HandleFunc("POST /campaigns/{id}/content", s.handleGenerateContent)
 	mux.HandleFunc("PUT /campaigns/{id}/content/{channel}", s.handleEditContent)
+	mux.HandleFunc("POST /campaigns/{id}/approve", s.handleApprove)
 	return logRequests(mux)
 }
 

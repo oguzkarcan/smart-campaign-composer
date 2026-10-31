@@ -132,6 +132,23 @@ func (s *Server) handleEditContent(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, c)
 }
 
+// handleApprove locks the content and queues the messages. Content that no
+// longer fits the audience's worst-case lengths is a 422 with problems, like
+// an edit; a wrong status, a concurrent edit or an unreachable audience is a
+// 409. The request has no body.
+func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	c, err := s.campaigns.Approve(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, c)
+}
+
 func pathID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil || id < 1 {

@@ -13,6 +13,7 @@ import (
 
 	"github.com/oguzkarcan/smart-campaign-composer/backend/internal/campaign"
 	"github.com/oguzkarcan/smart-campaign-composer/backend/internal/campaign/campaigntest"
+	"github.com/oguzkarcan/smart-campaign-composer/backend/internal/content"
 	"github.com/oguzkarcan/smart-campaign-composer/backend/internal/llm"
 )
 
@@ -282,6 +283,46 @@ func TestEditAfterApprovalConflicts(t *testing.T) {
 	store.SetStatus(1, campaign.StatusApproved)
 
 	if w := do(t, h, "PUT", "/campaigns/1/content/sms", `{"body": "Hi"}`); w.Code != http.StatusConflict {
+		t.Fatalf("%d %s", w.Code, w.Body)
+	}
+}
+
+func TestApprove(t *testing.T) {
+	h, store := newTestAPI(&llm.Mock{})
+	create(t, h, `["sms", "email"]`)
+	if w := do(t, h, "POST", "/campaigns/1/approve", ""); w.Code != http.StatusConflict {
+		t.Fatalf("approve without content: %d %s", w.Code, w.Body)
+	}
+	do(t, h, "POST", "/campaigns/1/content", "")
+
+	w := do(t, h, "POST", "/campaigns/1/approve", "")
+	c := decodeBody[campaign.Campaign](t, w)
+	if w.Code != http.StatusOK || c.Status != campaign.StatusSending || c.ApprovedAt == nil || store.Queued[1] == 0 {
+		t.Fatalf("%d %s", w.Code, w.Body)
+	}
+
+	for path, status := range map[string]int{
+		"/campaigns/1/approve": http.StatusConflict, // already approved
+		"/campaigns/9/approve": http.StatusNotFound,
+	} {
+		if w := do(t, h, "POST", path, ""); w.Code != status || decodeBody[errorResponse](t, w).Error == "" {
+			t.Errorf("POST %s: %d %s, want %d", path, w.Code, w.Body, status)
+		}
+	}
+}
+
+func TestApproveRevalidates(t *testing.T) {
+	h, store := newTestAPI(&llm.Mock{})
+	create(t, h, `["sms"]`)
+	do(t, h, "POST", "/campaigns/1/content", "")
+	body := strings.Repeat("a", 160-14) + "{{first_name}}"
+	if w := do(t, h, "PUT", "/campaigns/1/content/sms", `{"body": "`+body+`"}`); w.Code != http.StatusOK {
+		t.Fatalf("edit: %d %s", w.Code, w.Body)
+	}
+	store.Lens[content.VarFirstName] = 20 // a longer name joined the audience
+
+	w := do(t, h, "POST", "/campaigns/1/approve", "")
+	if w.Code != http.StatusUnprocessableEntity || len(decodeBody[errorResponse](t, w).Problems) == 0 {
 		t.Fatalf("%d %s", w.Code, w.Body)
 	}
 }

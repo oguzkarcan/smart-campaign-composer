@@ -4,6 +4,7 @@ package campaigntest
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"sync"
 	"time"
@@ -24,6 +25,9 @@ type MemStore struct {
 	Audience  segment.Audience
 	Lens      content.MaxLengths
 	attempts  map[int64]*llm.MemoryRecorder
+	// Queued is how many messages approval enqueued per campaign: the
+	// audience snapshot's consented counts for the campaign's channels.
+	Queued map[int64]int
 }
 
 func NewMemStore() *MemStore {
@@ -32,6 +36,7 @@ func NewMemStore() *MemStore {
 		Audience:  segment.Audience{Matched: 230, SMS: 120, Email: 160},
 		Lens:      content.MaxLengths{content.VarFirstName: 13, content.VarCity: 10},
 		attempts:  map[int64]*llm.MemoryRecorder{},
+		Queued:    map[int64]int{},
 	}
 }
 
@@ -130,6 +135,28 @@ func (s *MemStore) SetError(_ context.Context, id int64, msg string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.campaigns[id].LastError = msg
+	return nil
+}
+
+func (s *MemStore) Approve(_ context.Context, id int64, versions map[string]int, now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, err := s.guard(id, campaign.StatusContentReady)
+	if err != nil {
+		return err
+	}
+	current := map[string]int{}
+	for _, m := range c.Contents {
+		current[m.Channel] = m.Version
+	}
+	if !maps.Equal(current, versions) {
+		return fmt.Errorf("%w: the content changed while approving", campaign.ErrConflict)
+	}
+	if c.Reachable() == 0 {
+		return fmt.Errorf("%w: nobody can be reached", campaign.ErrConflict)
+	}
+	s.Queued[id] = c.Reachable()
+	c.Status, c.ApprovedAt, c.LastError = campaign.StatusSending, &now, ""
 	return nil
 }
 

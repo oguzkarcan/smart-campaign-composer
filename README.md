@@ -80,6 +80,7 @@ All bodies are JSON. Errors are `{"error": "...", "problems": [{"path", "message
 | `POST /campaigns/{id}/segment`         | Regenerates the segment (discards content). |
 | `POST /campaigns/{id}/content`         | Generates content, streamed as SSE: `delta` `{"attempt", "text"}`, then `done` (campaign) or `error`. A higher `attempt` means a repair round started. Errors before streaming starts are plain JSON. |
 | `PUT /campaigns/{id}/content/{channel}`| `{"subject", "body"}` → marketer edit, validated like generated content (`422` with `problems`). |
+| `POST /campaigns/{id}/approve`         | No body. Re-validates the content against today's audience (`422` if it no longer fits), locks it, queues one message per consented recipient and channel, status → `sending`. `409` if not `content_ready`, edited meanwhile, or nobody is reachable. |
 | `GET /health`                          | `200` when the database is reachable, `503` otherwise. |
 
 Status codes: `400` bad input, `404` unknown campaign, `409` not allowed in the
@@ -131,7 +132,9 @@ Done:
   every LLM attempt stored in `llm_generations`.
 - HTTP API for the campaign flow with SSE content streaming; `LLM_MODE`
   selects the mock or Claude client.
+- Approval: content re-validated and locked, messages enqueued idempotently in
+  the same transaction (rule AND consent AND campaign channels).
 
 Not done yet:
-- Approval flow, worker sending, retries, `/metrics`.
+- Worker sending, retries, `/metrics`.
 - Vue frontend and live dashboard.

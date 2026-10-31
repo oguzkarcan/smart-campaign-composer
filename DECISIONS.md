@@ -196,6 +196,24 @@ appended at the bottom of each section.
   (`WHERE status IN (...)`, or a row lock for edits), so a generation or edit
   that finishes after approval changes nothing and returns a conflict. The
   service checks status first only to give a clear message.
+- **Approval re-validates against today's audience.** Lengths were measured
+  when the content was written or edited; names and cities in the audience
+  may be longer now. Approval measures again and refuses (`422`, same
+  problems format as an edit) rather than send a message over the limit.
+- **Approval approves exactly the validated content.** The service passes the
+  content versions it validated; the store locks the campaign row and refuses
+  (`409`) if any version changed, so an edit that lands in between is never
+  sent unchecked.
+- **Approve and enqueue are one transaction,** and the campaign goes straight
+  to `sending` with `approved_at` set. A campaign is never `sending` without
+  its messages, and messages are never queued for content that can still
+  change. `approved` stays in the schema but is not used as a resting state.
+- **Recipients are computed at approval** with `INSERT … SELECT` per channel
+  from `segment.RecipientsSQL` (rule AND that channel's consent, only the
+  campaign's channels), `ON CONFLICT DO NOTHING` on
+  `UNIQUE(campaign_id, user_id, channel)`. The rows are created in Postgres,
+  not loaded into Go. If nobody is reachable any more, approval is refused
+  instead of starting an empty campaign.
 - **The service depends on a small `Store` interface.** Flow rules are
   unit-tested with an in-memory store (`make test`, no database); the Postgres
   store is covered by integration tests against the seeded database.

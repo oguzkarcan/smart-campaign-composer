@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/oguzkarcan/smart-campaign-composer/backend/internal/campaign"
 	"github.com/oguzkarcan/smart-campaign-composer/backend/internal/campaign/campaigntest"
@@ -248,6 +249,93 @@ func TestNothingChangesAfterApproval(t *testing.T) {
 	}
 	if _, err := svc.EditContent(ctx, c.ID, "sms", campaign.Edit{Body: "Hi"}); !errors.Is(err, campaign.ErrConflict) {
 		t.Errorf("EditContent: err = %v", err)
+	}
+}
+
+func TestApprove(t *testing.T) {
+	svc, store := newTestService(&llm.Mock{})
+	ctx := context.Background()
+	c := readyCampaign(t, svc, []string{"sms", "email"})
+
+	c, err := svc.Approve(ctx, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Status != campaign.StatusSending || c.ApprovedAt == nil {
+		t.Fatalf("status %s, approved_at %v", c.Status, c.ApprovedAt)
+	}
+	// One message per consented user and channel: 120 SMS + 160 email.
+	if got := store.Queued[c.ID]; got != 280 {
+		t.Fatalf("queued %d messages, want 280", got)
+	}
+
+	// The content is locked, and approving twice is refused.
+	if _, err := svc.Approve(ctx, c.ID); !errors.Is(err, campaign.ErrConflict) {
+		t.Errorf("second Approve: err = %v", err)
+	}
+	if _, err := svc.EditContent(ctx, c.ID, "sms", campaign.Edit{Body: "Hi"}); !errors.Is(err, campaign.ErrConflict) {
+		t.Errorf("EditContent after approval: err = %v", err)
+	}
+}
+
+func TestApproveNeedsContent(t *testing.T) {
+	svc, _ := newTestService(&llm.Mock{})
+	ctx := context.Background()
+	c, _ := svc.Create(ctx, exampleBrief, []string{"sms"})
+	if _, err := svc.Approve(ctx, c.ID); !errors.Is(err, campaign.ErrConflict) {
+		t.Errorf("draft: err = %v", err)
+	}
+	if _, err := svc.GenerateSegment(ctx, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Approve(ctx, c.ID); !errors.Is(err, campaign.ErrConflict) {
+		t.Errorf("audience_ready: err = %v", err)
+	}
+	if _, err := svc.Approve(ctx, 404); !errors.Is(err, campaign.ErrNotFound) {
+		t.Errorf("unknown campaign: err = %v", err)
+	}
+}
+
+// Content that fit when it was edited can stop fitting if longer names joined
+// the audience since; approval measures again and refuses.
+func TestApproveRevalidatesAgainstCurrentAudience(t *testing.T) {
+	svc, store := newTestService(&llm.Mock{})
+	ctx := context.Background()
+	c := readyCampaign(t, svc, []string{"sms"})
+	// Exactly 160 while names count as the placeholder's 14 characters.
+	body := strings.Repeat("a", 160-14) + "{{first_name}}"
+	if _, err := svc.EditContent(ctx, c.ID, "sms", campaign.Edit{Body: body}); err != nil {
+		t.Fatal(err)
+	}
+
+	store.Lens = content.MaxLengths{content.VarFirstName: 15, content.VarCity: 10}
+	_, err := svc.Approve(ctx, c.ID)
+	var verr content.ValidationError
+	if !errors.As(err, &verr) || verr[0].Path != "sms.body" {
+		t.Fatalf("err = %v, want a validation error at sms.body", err)
+	}
+	if c, _ = svc.Get(ctx, c.ID); c.Status != campaign.StatusContentReady || store.Queued[c.ID] != 0 {
+		t.Fatalf("status %s, queued %d after a failed approval", c.Status, store.Queued[c.ID])
+	}
+
+	store.Lens = content.MaxLengths{content.VarFirstName: 13, content.VarCity: 10}
+	if _, err := svc.Approve(ctx, c.ID); err != nil {
+		t.Fatalf("approve after the audience shrank back: %v", err)
+	}
+}
+
+// The store approves only the content versions the service validated, so an
+// edit that lands between validation and approval is not sent unvalidated.
+func TestApproveRefusesChangedContent(t *testing.T) {
+	svc, store := newTestService(&llm.Mock{})
+	ctx := context.Background()
+	c := readyCampaign(t, svc, []string{"sms"})
+	validated := map[string]int{"sms": c.Contents[0].Version}
+	if _, err := svc.EditContent(ctx, c.ID, "sms", campaign.Edit{Body: "Hi"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Approve(ctx, c.ID, validated, time.Now()); !errors.Is(err, campaign.ErrConflict) {
+		t.Fatalf("err = %v, want ErrConflict", err)
 	}
 }
 

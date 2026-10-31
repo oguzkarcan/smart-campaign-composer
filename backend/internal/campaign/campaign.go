@@ -116,6 +116,11 @@ type Store interface {
 	SaveContent(ctx context.Context, id int64, c content.Content) error
 	EditContent(ctx context.Context, id int64, c content.Content, channel string) error
 	SetError(ctx context.Context, id int64, msg string) error
+	// Approve moves a content_ready campaign to sending and enqueues its
+	// messages in one transaction. It returns ErrConflict if the content is
+	// no longer at the validated versions (channel → version) or nobody can
+	// be reached.
+	Approve(ctx context.Context, id int64, versions map[string]int, now time.Time) error
 
 	Catalog(ctx context.Context) (segment.Catalog, error)
 	Count(ctx context.Context, r segment.Rule, now time.Time) (segment.Audience, error)
@@ -287,6 +292,40 @@ func (s *Service) EditContent(ctx context.Context, id int64, channel string, e E
 		return Campaign{}, err
 	}
 	if err := s.store.EditContent(ctx, id, edited, channel); err != nil {
+		return Campaign{}, err
+	}
+	return s.Get(ctx, id)
+}
+
+// Approve locks the content and queues one message per recipient and
+// channel. The content is validated again against the audience as it is now,
+// since names and cities may be longer than when it was written or edited;
+// failures are a content.ValidationError and nothing is approved. Recipients
+// are computed again too: the rule matches who it matches today, and consent
+// is applied per channel by the store.
+func (s *Service) Approve(ctx context.Context, id int64) (Campaign, error) {
+	c, err := s.store.Get(ctx, id)
+	if err != nil {
+		return Campaign{}, err
+	}
+	if c.Status != StatusContentReady {
+		return Campaign{}, fmt.Errorf("%w: only generated, unapproved content can be approved (status %s)", ErrConflict, c.Status)
+	}
+
+	now := s.now()
+	lens, err := s.store.MaxLengths(ctx, *c.Rule, c.Channels, now)
+	if err != nil {
+		return Campaign{}, err
+	}
+	stored := c.content()
+	if err := content.Validate(&stored, c.Channels, lens); err != nil {
+		return Campaign{}, err
+	}
+	versions := map[string]int{}
+	for _, m := range c.Contents {
+		versions[m.Channel] = m.Version
+	}
+	if err := s.store.Approve(ctx, id, versions, now); err != nil {
 		return Campaign{}, err
 	}
 	return s.Get(ctx, id)

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -185,6 +187,91 @@ func (s *PGStore) SetError(ctx context.Context, id int64, msg string) error {
 		return fmt.Errorf("set campaign error: %w", err)
 	}
 	return nil
+}
+
+// Approve enqueues messages and starts sending in one transaction, so a
+// campaign is never "sending" without its messages, nor are messages queued
+// for content that could still change. The campaign row is locked first,
+// which serializes approval with edits and with a second approval.
+func (s *PGStore) Approve(ctx context.Context, id int64, versions map[string]int, now time.Time) error {
+	return pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
+		var (
+			status   string
+			channels []string
+			rule     []byte
+		)
+		err := tx.QueryRow(ctx, "SELECT status, channels, segment_rule FROM campaigns WHERE id = $1 FOR UPDATE", id).
+			Scan(&status, &channels, &rule)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("lock campaign: %w", err)
+		}
+		if status != StatusContentReady {
+			return fmt.Errorf("%w: the campaign can no longer be approved (status %s)", ErrConflict, status)
+		}
+
+		// The content must be exactly what the service validated.
+		rows, err := tx.Query(ctx, "SELECT channel, version FROM campaign_contents WHERE campaign_id = $1", id)
+		if err != nil {
+			return fmt.Errorf("read content versions: %w", err)
+		}
+		current := map[string]int{}
+		var ch string
+		var v int
+		if _, err := pgx.ForEachRow(rows, []any{&ch, &v}, func() error { current[ch] = v; return nil }); err != nil {
+			return fmt.Errorf("read content versions: %w", err)
+		}
+		if !maps.Equal(current, versions) {
+			return fmt.Errorf("%w: the content changed while approving; review it and approve again", ErrConflict)
+		}
+
+		var r segment.Rule
+		if err := json.Unmarshal(rule, &r); err != nil {
+			return fmt.Errorf("decode segment of campaign %d: %w", id, err)
+		}
+		queued := 0
+		for _, channel := range channels {
+			n, err := enqueue(ctx, tx, id, r, channel, now)
+			if err != nil {
+				return err
+			}
+			queued += n
+		}
+		if queued == 0 {
+			return fmt.Errorf("%w: nobody in this audience can be reached on %s anymore; change the brief or the channels",
+				ErrConflict, strings.Join(channels, " or "))
+		}
+
+		_, err = tx.Exec(ctx, `
+			UPDATE campaigns SET status = 'sending', approved_at = $2, last_error = NULL, updated_at = now()
+			WHERE id = $1`, id, now)
+		if err != nil {
+			return fmt.Errorf("approve campaign: %w", err)
+		}
+		return nil
+	})
+}
+
+// enqueue inserts one queued message per recipient of channel: users the rule
+// matches who consented to it (segment.RecipientsSQL). ON CONFLICT DO NOTHING
+// makes it idempotent against UNIQUE(campaign_id, user_id, channel).
+func enqueue(ctx context.Context, tx pgx.Tx, id int64, r segment.Rule, channel string, now time.Time) (int, error) {
+	recipients, args, err := segment.RecipientsSQL(r, channel, now)
+	if err != nil {
+		return 0, err
+	}
+	n := len(args)
+	sql := fmt.Sprintf(`
+		INSERT INTO messages (campaign_id, user_id, channel)
+		SELECT $%d::bigint, r.id, $%d::text FROM (%s) r
+		ON CONFLICT (campaign_id, user_id, channel) DO NOTHING`, n+1, n+2, recipients)
+	tag, err := tx.Exec(ctx, sql, append(args, id, channel)...)
+	if err != nil {
+		return 0, fmt.Errorf("enqueue %s messages: %w", channel, err)
+	}
+	return int(tag.RowsAffected()), nil
 }
 
 // conflict explains why a guarded update matched no rows.
