@@ -134,6 +134,8 @@ Done:
   selects the mock or Claude client.
 - Approval: content re-validated and locked, messages enqueued idempotently in
   the same transaction (rule AND consent AND campaign channels).
+- Provider client: renders at send time, `messages.id` as idempotency key,
+  classifies responses (sent / retryable with `Retry-After` / permanent).
 
 Not done yet:
 - Worker sending, retries, `/metrics`.

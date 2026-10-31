@@ -82,7 +82,7 @@ segment DSL + validator + SQL compiler + consent.
 - [x] 1. Approval: `POST /campaigns/{id}/approve` re-validates content, locks it,
   enqueues messages with `INSERT … SELECT` (rule AND consent AND channel in
   campaign channels) `ON CONFLICT DO NOTHING`; status `approved`→`sending`.
-- [ ] 2. `internal/delivery` provider client: render at send time, `messages.id`
+- [x] 2. `internal/delivery` provider client: render at send time, `messages.id`
   as idempotency key, classify responses (ok / retryable 5xx+timeout / 429 with
   Retry-After / permanent 4xx).
 - [ ] 3. Worker: claim with `FOR UPDATE SKIP LOCKED` + 30 s lease, per-channel
