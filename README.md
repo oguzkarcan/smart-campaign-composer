@@ -1,4 +1,5 @@
-# Smart Campaign Composer
+# Sirius Studio · Smart Campaign Composer
+### Autonomous Multi-Channel Campaign & Delivery Engine for Insider One
 
 [![CI](https://github.com/oguzkarcan/smart-campaign-composer/actions/workflows/ci.yml/badge.svg)](https://github.com/oguzkarcan/smart-campaign-composer/actions/workflows/ci.yml)
 
