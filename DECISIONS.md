@@ -548,6 +548,14 @@ listed in the [README](README.md#unfinished-scope-and-known-gaps).
   reports healthy before the real server accepts connections.
 - **Compose works without a `.env` file**; every variable has a mock-mode
   default.
+- **Checked from a fresh clone:** `docker compose up` with no `.env` and a
+  no-cache build, then the example brief run through the frontend's `/api`
+  proxy to a completed campaign, and `make test` inside the clone.
+- **CI runs the Makefile targets, not its own commands** (`make vet`, `make
+  test`), so CI and a reviewer's machine check the same thing. The runner
+  installs Go (version from `go.mod`) and Node, so the Makefile uses them
+  directly instead of Docker; integration tests need the compose stack and
+  stay local.
 
 ## Repository
 

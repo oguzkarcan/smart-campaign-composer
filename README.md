@@ -1,5 +1,7 @@
 # Smart Campaign Composer
 
+[![CI](https://github.com/oguzkarcan/smart-campaign-composer/actions/workflows/ci.yml/badge.svg)](https://github.com/oguzkarcan/smart-campaign-composer/actions/workflows/ci.yml)
+
 A marketer writes a campaign brief in plain language. Claude turns it into a
 target audience and SMS/email messages, the marketer reviews and approves them,
 and the messages are sent through a queue to a mock provider while a dashboard
@@ -79,6 +81,9 @@ make up                # docker compose up --build
 make down              # stop and remove volumes (fresh database next time)
 make help              # list all targets
 ```
+
+CI (GitHub Actions, `.github/workflows/ci.yml`) runs `make vet` and
+`make test` on every push to `main` and every pull request.
 
 Frontend development with hot reload (needs Node; the dev server proxies
 `/api` to the API on :8080, override with `API_URL`):
@@ -273,4 +278,8 @@ approval → rate-limited, retried, idempotent delivery → live dashboard, plus
   keys.
 - **Frontend tests are unit tests and type checks;** there are no browser
   end-to-end tests.
-- **Remaining Day 5 steps:** fresh-clone check, final session export, CI.
+- **Claude mode has not been run against the live API.** The demo and all
+  tests use the mock LLM; the Claude client is tested against a fake
+  streaming server (`llm/claude_test.go`: streaming, refusal, truncation,
+  overload retries) but was not exercised with a real key.
+- **Remaining Day 5 step:** final session export.
