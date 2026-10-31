@@ -266,6 +266,16 @@ listed in the [README](README.md#unfinished-scope-and-known-gaps).
 - **Migration keeps old campaigns working:** content written before
   per-language content was one message for everybody, so it is copied to
   both languages, and queued messages get their recipient's language.
+- **The matching-people list is read-only and reports consent instead of
+  filtering on it** (`GET /campaigns/{id}/recipients`). Audience membership
+  stays defined by the segment rule alone, so there is no add/remove; the
+  list exists to answer "who exactly is this?" and to preview real messages.
+  Showing users without consent as "skipped" on a channel explains the gap
+  between matching users and recipients. It runs the same compiled,
+  parameterized rule as counting and enqueueing, live at read time like the
+  rest of the page, ordered by id. Offset paging (as asked for a table with
+  "Load more") is fine for a few hundred matches; a large audience would
+  page by id like `GET /campaigns`.
 - **The service depends on a small `Store` interface.** Flow rules are
   unit-tested with an in-memory store (`make test`, no database); the Postgres
   store is covered by integration tests against the seeded database.
@@ -482,6 +492,25 @@ listed in the [README](README.md#unfinished-scope-and-known-gaps).
   away instead of in the way: the segment rule JSON and the model's raw
   streamed output are in collapsed `<details>`, and generation shows a
   progress card.
+- **"Preview as this person"** picks a user from the matching-people table;
+  their first name and city fill the SMS bubble and email card (only the two
+  allowed variables, as the worker renders), the SMS shows their phone and
+  the email their address, the editor switches to their language's tab, and
+  a pill shows who is selected with a reset to the sample. If they did not
+  consent to a channel, that preview is dimmed with a note that they will
+  not get it. The selection is cleared when the audience is regenerated.
+- **Dark mode remaps Tailwind's palette** instead of adding `dark:` to every
+  class. Tailwind v4 renders colours through `--color-*` variables, so a
+  `.dark` block in `style.css` swaps each scale (50 ↔ 950, 100 ↔ 900, …;
+  white → slate-900; slate a little stronger so cards, chips and borders
+  stay apart). Every view, table, badge, input and preview follows at once,
+  and new UI is dark-ready by default. Only two things opt out with
+  explicit `dark:` classes: the phone frame and the raw-JSON block stay
+  dark. Primary buttons become light-on-dark tints with dark text, which
+  keeps their contrast. `color-scheme: dark` makes native controls (date
+  picker, checkboxes) dark too. The choice is saved in `localStorage`;
+  without one the OS setting is followed live, and a small inline script in
+  `index.html` applies it before the app loads, so there is no light flash.
 - **Unsaved message edits are guarded** on route changes and on closing the
   tab, since edits only reach the server on Save.
 - **Frontend checks are part of `make test`:** `vue-tsc` type checking and

@@ -370,6 +370,33 @@ func TestApproveRevalidates(t *testing.T) {
 	}
 }
 
+func TestRecipients(t *testing.T) {
+	h, _ := newTestAPI(&llm.Mock{})
+	create(t, h, `["sms", "email"]`)
+
+	w := do(t, h, "GET", "/campaigns/1/recipients?limit=2&offset=1", "")
+	p := decodeBody[campaign.People](t, w)
+	if w.Code != http.StatusOK || p.Total != 3 || len(p.Recipients) != 2 || p.Offset != 1 || p.Recipients[0].FirstName != "Mehmet" {
+		t.Fatalf("%d %s", w.Code, w.Body)
+	}
+	for path, status := range map[string]int{
+		"/campaigns/1/recipients?limit=abc":  http.StatusBadRequest,
+		"/campaigns/1/recipients?limit=0":    http.StatusBadRequest,
+		"/campaigns/1/recipients?limit=500":  http.StatusBadRequest,
+		"/campaigns/1/recipients?offset=-1":  http.StatusBadRequest,
+		"/campaigns/1/recipients?offset=one": http.StatusBadRequest,
+		"/campaigns/9/recipients":            http.StatusNotFound,
+	} {
+		if w := do(t, h, "GET", path, ""); w.Code != status || decodeBody[errorResponse](t, w).Error == "" {
+			t.Errorf("GET %s: %d %s, want %d", path, w.Code, w.Body, status)
+		}
+	}
+	// The list is read-only.
+	if w := do(t, h, "POST", "/campaigns/1/recipients", `{"id": 4}`); w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("POST recipients: %d", w.Code)
+	}
+}
+
 func TestListCampaigns(t *testing.T) {
 	h, store := newTestAPI(&llm.Mock{})
 	for range 3 {

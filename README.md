@@ -20,8 +20,9 @@ cp .env.example .env   # optional; everything has mock-mode defaults
 docker compose up
 ```
 
-Open http://localhost:3000. The `TR | EN` switch in the header changes the
-interface language (remembered in the browser).
+Open http://localhost:3000. The header switches the interface language
+(`TR | EN`) and the colour theme (light / dark, following the OS until you
+pick one); both are remembered in the browser.
 
 | Service        | URL                           |
 | -------------- | ----------------------------- |
@@ -55,7 +56,11 @@ CLAUDE_MODEL=claude-sonnet-5-5      # default
 2. **Audience:** the brief becomes a segment rule, shown as readable
    conditions ("Added to cart in the last 30 days", raw JSON on demand), with
    how many matched users consented to each channel, in total and per
-   language (Turkish / English). Regenerate it if it is not what you meant.
+   language (Turkish / English). Open *Show matching people* to see who the
+   rule matches, with which channels each person receives or is skipped on
+   (no consent), and pick anyone to preview the messages as that person.
+   The list is read-only: the rule alone decides who is in it. Regenerate
+   the audience if it is not what you meant.
 3. **Messages:** generate content and watch it stream in, once per language
    in the audience: Turkish readers get Turkish messages, English readers
    English ones, each in its own tab. Edit any message; counters show its
@@ -119,15 +124,16 @@ cd frontend && npm install && npm run dev   # http://localhost:3000
   - *Delivery:* provider response classes and `Retry-After`, backoff and the
     5-attempt policy, the worker's rate limit (minimum pace, no window over
     the limit, independent per channel), retries, graceful shutdown.
-  - *HTTP API* and the *frontend* (type check, rule rendering in English and
-    Turkish, content validation mirror, SSE reader, progress maths, language
+  - *HTTP API* (including the paged, read-only recipients list) and the
+    *frontend* (type check, rule rendering in English and Turkish, content validation mirror, SSE reader, progress maths, language
     tabs, schedule input, step bar, translations).
 - **Integration (`make test-integration`):** compiled rules match a
   hand-written reference query on the seeded data; approval queues only
   consented recipients on the campaign's channels, exactly once, even under
   concurrent approvals; queue claiming, leases and stale results; a
   scheduled campaign is not claimed, started or closed before its time, and
-  starts sending once due; audience counts and variable lengths per
+  starts sending once due; the recipients list pages through exactly the
+  rule's matches with their stored consent; audience counts and variable lengths per
   language, every queued message keeps its recipient's language, and the
   worker sends the content of that language.
 - **End to end:** the real worker, Postgres queue and HTTP client against the
@@ -197,6 +203,7 @@ All bodies are JSON. Errors are `{"error": "...", "problems": [{"path", "message
 | `PUT /campaigns/{id}/content/{language}/{channel}`| `{"subject", "body"}` → marketer edit of one language's message, validated like generated content with that language's lengths (`422` with `problems`). |
 | `POST /campaigns/{id}/approve`         | Optional body `{"send_at": "<RFC 3339>"}`. Re-validates the content against today's audience (`422` if it no longer fits), locks it, queues one message per consented recipient and channel, status → `sending`, or `scheduled` until `send_at` (`scheduled_at` on the campaign). `400` if `send_at` is not in the future or more than 30 days ahead; `409` if not `content_ready`, edited meanwhile, or nobody is reachable. |
 | `GET /campaigns`                       | Campaigns newest first with message counts. `?limit=` (1–200, default 50), `?before=<id>` for the next page. |
+| `GET /campaigns/{id}/recipients`       | Users the segment rule matches now, ordered by id: `{"recipients": [{"id", "first_name", "city", "language", "phone", "email", "sms_consent", "email_consent"}], "total", "limit", "offset"}`. `?limit=` (1–100, default 15), `?offset=`. Read-only; consent is reported, not filtered. `409` before the campaign has a segment. |
 | `GET /campaigns/{id}/progress`         | Delivery progress: message counts by status (`totals` and per channel), top failure reasons, `done`. |
 | `GET /campaigns/{id}/events`           | SSE for the live dashboard: a `progress` event now and on every change; ends after one with `"done": true` (close the `EventSource` then). |
 | `GET /health`                          | `200` when the database is reachable, `503` otherwise. |
@@ -275,7 +282,8 @@ approval → rate-limited, retried, idempotent delivery → live dashboard, plus
 Beyond the core scope (Day 6): scheduled sending (`send_at` on approval),
 messages in each recipient's language (Turkish / English, generated,
 edited and sent per language), and a marketer-oriented UI with a `TR | EN`
-interface switch, a step bar and SMS / email previews.
+interface switch, light / dark themes, a step bar, SMS / email previews and
+a read-only list of matching people to preview the messages as.
 
 ### Unfinished scope and known gaps
 

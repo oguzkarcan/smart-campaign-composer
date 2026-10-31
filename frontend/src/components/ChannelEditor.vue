@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { ApiError, editContent } from '@/api/client'
-import type { Campaign, Channel, Content, Language } from '@/api/types'
+import type { Campaign, Channel, Content, Language, Person } from '@/api/types'
 import { checkField, render, token, VARIABLES } from '@/lib/content'
 import { channelLabel } from '@/lib/format'
 import { t } from '@/lib/i18n'
@@ -18,6 +18,8 @@ const props = defineProps<{
   variableLengths: Record<string, number>
   limits: Record<string, number>
   readonly: boolean
+  // A real matching user to preview as; otherwise a typical sample.
+  person?: Person | null
 }>()
 
 const emit = defineEmits<{
@@ -25,12 +27,19 @@ const emit = defineEmits<{
   state: [state: { dirty: boolean; valid: boolean }]
 }>()
 
-// A typical recipient of this language for the preview.
-const samples: Record<Language, { first_name: string; city: string }> = {
-  tr: { first_name: 'Ayşe', city: 'İstanbul' },
-  en: { first_name: 'Emily', city: 'İzmir' },
+// A typical recipient of this language for the preview, unless the marketer
+// picked a real one from the audience.
+const samples: Record<Language, { first_name: string; city: string; phone: string; email: string }> = {
+  tr: { first_name: 'Ayşe', city: 'İstanbul', phone: '+90 555 000 00 00', email: 'ayse@example.com' },
+  en: { first_name: 'Emily', city: 'İzmir', phone: '+90 555 000 00 01', email: 'emily@example.com' },
 }
-const sample = computed(() => samples[props.language])
+const sample = computed(() => props.person ?? samples[props.language])
+// Only the allowed variables are filled in, like the worker does.
+const values = computed(() => ({ first_name: sample.value.first_name, city: sample.value.city }))
+// The previewed person did not consent to this channel, so they are skipped.
+const skipped = computed(
+  () => !!props.person && !(props.channel === 'sms' ? props.person.sms_consent : props.person.email_consent),
+)
 
 const subject = ref('')
 const body = ref('')
@@ -186,13 +195,17 @@ function fieldClass(problems: string[]) {
       <p class="text-xs font-medium tracking-wide text-slate-500 uppercase">
         {{ t('preview.title', { name: sample.first_name, city: sample.city }) }}
       </p>
+      <p v-if="skipped" class="rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-800">
+        {{ t('preview.noConsent', { name: sample.first_name, channel: channelLabel(channel) }) }}
+      </p>
       <EmailPreview
         v-if="isEmail"
-        :subject="render(subject.trim(), sample)"
-        :body="render(body.trim(), sample)"
-        :recipient="sample.first_name"
+        :subject="render(subject.trim(), values)"
+        :body="render(body.trim(), values)"
+        :recipient="`${sample.first_name} <${sample.email}>`"
+        :class="{ 'opacity-60': skipped }"
       />
-      <SmsPreview v-else :text="render(body.trim(), sample)" :recipient="sample.first_name" />
+      <SmsPreview v-else :text="render(body.trim(), values)" :recipient="sample.phone" :class="{ 'opacity-60': skipped }" />
     </div>
 
     <ErrorAlert v-if="showSaveAlert" :error="saveError" :title="t('editor.saveError')" />

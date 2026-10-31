@@ -6,7 +6,7 @@ defineProps<{ text: string; recipient: string }>()
 </script>
 
 <template>
-  <figure class="mx-auto w-full max-w-xs rounded-[1.75rem] border-4 border-slate-800 bg-slate-800 shadow-sm">
+  <figure class="mx-auto w-full max-w-xs rounded-[1.75rem] border-4 border-slate-800 bg-slate-800 shadow-sm dark:border-black dark:bg-black">
     <div class="rounded-[1.4rem] bg-white px-3 pt-2 pb-4">
       <div class="mx-auto mb-3 h-1.5 w-12 rounded-full bg-slate-200" aria-hidden="true" />
       <figcaption class="mb-3 text-center">

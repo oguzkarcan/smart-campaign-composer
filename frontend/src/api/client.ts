@@ -5,6 +5,7 @@ import type {
   Channel,
   ContentEdit,
   Language,
+  People,
   ErrorBody,
   Problem,
   Progress,
@@ -119,6 +120,19 @@ export function editContent(id: number, language: Language, channel: Channel, ed
 // approveCampaign sends now, or at sendAt (an ISO time) if given.
 export function approveCampaign(id: number, sendAt?: string): Promise<Campaign> {
   return request('POST', `/campaigns/${id}/approve`, { body: sendAt ? { send_at: sendAt } : undefined })
+}
+
+// getRecipients pages through the users the campaign's rule matches now.
+export function getRecipients(
+  id: number,
+  page: { limit?: number; offset?: number } = {},
+  signal?: AbortSignal,
+): Promise<People> {
+  const q = new URLSearchParams()
+  if (page.limit) q.set('limit', String(page.limit))
+  if (page.offset) q.set('offset', String(page.offset))
+  const qs = q.toString()
+  return request('GET', `/campaigns/${id}/recipients${qs ? `?${qs}` : ''}`, { signal })
 }
 
 export function getProgress(id: number, signal?: AbortSignal): Promise<Progress> {

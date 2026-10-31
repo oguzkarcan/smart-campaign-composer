@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, editContent, generateContent, getCampaign, TIMED_OUT, UNREACHABLE } from './client'
+import { ApiError, editContent, generateContent, getCampaign, getRecipients, TIMED_OUT, UNREACHABLE } from './client'
 
 function stubFetch(impl: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>) {
   vi.stubGlobal('fetch', vi.fn(impl))
@@ -94,5 +94,18 @@ describe('content endpoints', () => {
     const c = await generateContent(1, { onDelta: (lang, attempt, text) => deltas.push(`${lang}${attempt}:${text}`) })
     expect(deltas).toEqual(['tr1:Mer', 'en1:Hi'])
     expect(c.id).toBe(1)
+  })
+})
+
+describe('recipients', () => {
+  it('pages with limit and offset', async () => {
+    const urls: string[] = []
+    stubFetch(async (input) => {
+      urls.push(String(input))
+      return Response.json({ recipients: [], total: 0, limit: 15, offset: 0 })
+    })
+    await getRecipients(7)
+    await getRecipients(7, { limit: 15, offset: 30 })
+    expect(urls).toEqual(['/api/campaigns/7/recipients', '/api/campaigns/7/recipients?limit=15&offset=30'])
   })
 })

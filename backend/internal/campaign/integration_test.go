@@ -481,3 +481,49 @@ func TestIntegrationApproveNeedsEveryLanguage(t *testing.T) {
 		t.Fatalf("queued %d (want the %d Turkish recipients), English %d", queued, want, english)
 	}
 }
+
+// The audience list pages through exactly the users the rule matches, with
+// their consent as stored, stable by id.
+func TestIntegrationRecipients(t *testing.T) {
+	ctx := context.Background()
+	db := testDB(t)
+	svc := NewService(NewPGStore(db), &llm.Mock{})
+	c := createForTest(t, svc, db, []string{"sms", "email"})
+	c, err := svc.GenerateSegment(ctx, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var all []Person
+	for offset := 0; ; offset += 40 {
+		p, err := svc.Recipients(ctx, c.ID, 40, offset)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p.Total != c.Audience.Matched {
+			t.Fatalf("total %d, audience matched %d", p.Total, c.Audience.Matched)
+		}
+		if len(p.Recipients) == 0 {
+			break
+		}
+		all = append(all, p.Recipients...)
+	}
+	sms, email := 0, 0
+	for i, p := range all {
+		if i > 0 && p.ID <= all[i-1].ID {
+			t.Fatalf("not ordered by id at %d: %d after %d", i, p.ID, all[i-1].ID)
+		}
+		if p.City != "İstanbul" || p.FirstName == "" || p.Phone == "" || p.Email == "" || (p.Language != "tr" && p.Language != "en") {
+			t.Fatalf("person %+v", p)
+		}
+		if p.SMSConsent {
+			sms++
+		}
+		if p.EmailConsent {
+			email++
+		}
+	}
+	if len(all) != c.Audience.Matched || sms != c.Audience.SMS || email != c.Audience.Email {
+		t.Fatalf("listed %d (sms %d, email %d), audience %+v", len(all), sms, email, c.Audience)
+	}
+}

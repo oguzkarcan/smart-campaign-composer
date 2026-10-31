@@ -424,6 +424,30 @@ func (s *PGStore) Count(ctx context.Context, r segment.Rule, now time.Time) (seg
 	return segment.Count(ctx, s.db, r, now)
 }
 
+func (s *PGStore) Matching(ctx context.Context, r segment.Rule, limit, offset int, now time.Time) ([]Person, int, error) {
+	where, args, err := segment.Where(r, now)
+	if err != nil {
+		return nil, 0, err
+	}
+	var total int
+	if err := s.db.QueryRow(ctx, "SELECT count(*) FROM users u WHERE "+where, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count matching users: %w", err)
+	}
+	n := len(args)
+	rows, err := s.db.Query(ctx, fmt.Sprintf(`
+		SELECT u.id, u.first_name, u.city, u.language, u.phone, u.email, u.sms_opt_in, u.email_opt_in
+		FROM users u WHERE %s
+		ORDER BY u.id LIMIT $%d OFFSET $%d`, where, n+1, n+2), append(args, limit, offset)...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list matching users: %w", err)
+	}
+	list, err := pgx.CollectRows(rows, pgx.RowToStructByPos[Person])
+	if err != nil {
+		return nil, 0, fmt.Errorf("list matching users: %w", err)
+	}
+	return list, total, nil
+}
+
 // variableColumns maps personalization variables to the user columns they
 // are filled from. The worker renders from the same columns.
 var variableColumns = map[string]string{

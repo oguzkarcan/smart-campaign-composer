@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { ApiError, generateSegment, getCampaign } from '@/api/client'
-import type { Campaign, CampaignStatus } from '@/api/types'
+import type { Campaign, CampaignStatus, Person } from '@/api/types'
 import AudienceCounts from '@/components/AudienceCounts.vue'
+import AudiencePeople from '@/components/AudiencePeople.vue'
 import ContentSection from '@/components/ContentSection.vue'
 import DeliveryDashboard from '@/components/DeliveryDashboard.vue'
 import ErrorAlert from '@/components/ErrorAlert.vue'
@@ -21,6 +22,8 @@ const segmentError = ref<unknown>(null)
 const generating = ref(false)
 // Content generation is streaming; the audience must not change meanwhile.
 const contentBusy = ref(false)
+// "Preview as this person": a matching user whose data fills the previews.
+const previewPerson = ref<Person | null>(null)
 
 let controller: AbortController | undefined
 
@@ -28,6 +31,7 @@ async function load(id: number) {
   controller?.abort()
   controller = new AbortController()
   campaign.value = null
+  previewPerson.value = null
   loadError.value = null
   segmentError.value = null
   try {
@@ -66,6 +70,7 @@ async function regenerate() {
   if (c.contents?.length && !confirm(t('audience.confirmRegenerate'))) return
   generating.value = true
   segmentError.value = null
+  previewPerson.value = null // a new rule may not match them any more
   try {
     campaign.value = await generateSegment(c.id)
   } catch (e) {
@@ -170,13 +175,24 @@ async function regenerate() {
             </details>
           </div>
           <AudienceCounts v-if="campaign.audience" :audience="campaign.audience" :channels="campaign.channels" />
+          <AudiencePeople
+            v-if="campaign.audience"
+            :campaign-id="campaign.id"
+            :channels="campaign.channels"
+            :matched="campaign.audience.matched"
+            :rule-key="JSON.stringify(campaign.segment_rule)"
+            :selected="previewPerson"
+            @select="previewPerson = $event"
+          />
         </template>
       </section>
 
       <ContentSection
         v-if="campaign.segment_rule"
         :campaign="campaign"
+        :preview-person="previewPerson"
         @update="campaign = $event"
+        @clear-preview="previewPerson = null"
         @busy="contentBusy = $event"
       />
     </template>

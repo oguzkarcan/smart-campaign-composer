@@ -2,6 +2,7 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 import { health } from './api/client'
 import { LOCALES, locale, setLocale, t } from './lib/i18n'
+import { setTheme, theme, THEMES } from './lib/theme'
 
 type ApiState = 'checking' | 'ok' | 'down'
 const apiState = ref<ApiState>('checking')
@@ -51,11 +52,33 @@ const stateDot: Record<ApiState, string> = { checking: 'bg-slate-300', ok: 'bg-e
             {{ t('nav.new') }}
           </RouterLink>
         </nav>
-        <div class="flex shrink-0 items-center gap-4">
+        <div class="flex shrink-0 items-center gap-3">
           <span class="flex items-center gap-2 text-sm text-slate-500" role="status" :title="t(stateKeys[apiState])">
             <span class="size-2 rounded-full" :class="stateDot[apiState]" />
             <span class="sr-only md:not-sr-only">{{ t(stateKeys[apiState]) }}</span>
           </span>
+          <div
+            role="group"
+            :aria-label="t('theme.label')"
+            class="flex overflow-hidden rounded-lg border border-slate-300 text-xs font-semibold"
+          >
+            <button
+              v-for="(th, i) in THEMES"
+              :key="th"
+              type="button"
+              :aria-pressed="theme === th"
+              :title="t(`theme.${th}`)"
+              class="flex items-center gap-1 px-2.5 py-1"
+              :class="[
+                theme === th ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50',
+                { 'border-l border-slate-300': i > 0 },
+              ]"
+              @click="setTheme(th)"
+            >
+              <span aria-hidden="true">{{ th === 'light' ? '☀' : '☾' }}</span>
+              <span class="sr-only sm:not-sr-only">{{ t(`theme.${th}`) }}</span>
+            </button>
+          </div>
           <div
             role="group"
             :aria-label="t('nav.uiLanguage')"

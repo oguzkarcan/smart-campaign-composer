@@ -168,6 +168,10 @@ type Store interface {
 
 	Catalog(ctx context.Context) (segment.Catalog, error)
 	Count(ctx context.Context, r segment.Rule, now time.Time) (segment.Audience, error)
+	// Matching pages through the users the rule matches today, by id, with
+	// how many there are in total. Consent is not applied: the list shows
+	// who is skipped on which channel.
+	Matching(ctx context.Context, r segment.Rule, limit, offset int, now time.Time) ([]Person, int, error)
 	// MaxLengths measures the variables per language over the users the rule
 	// matches who consented to at least one of channels.
 	MaxLengths(ctx context.Context, r segment.Rule, channels []string, now time.Time) (LanguageLengths, error)
@@ -432,6 +436,64 @@ func (s *Service) Approve(ctx context.Context, id int64, sendAt *time.Time) (Cam
 		return Campaign{}, err
 	}
 	return s.Get(ctx, id)
+}
+
+// Person is a user the campaign's rule matches, as shown in the audience
+// list and used for "preview as this person". Consent decides which of the
+// campaign's channels they receive.
+type Person struct {
+	ID           int64  `json:"id"`
+	FirstName    string `json:"first_name"`
+	City         string `json:"city"`
+	Language     string `json:"language"`
+	Phone        string `json:"phone"`
+	Email        string `json:"email"`
+	SMSConsent   bool   `json:"sms_consent"`
+	EmailConsent bool   `json:"email_consent"`
+}
+
+// People is one page of the matching users.
+type People struct {
+	Recipients []Person `json:"recipients"`
+	Total      int      `json:"total"`
+	Limit      int      `json:"limit"`
+	Offset     int      `json:"offset"`
+}
+
+const (
+	DefaultPeopleLimit = 15
+	MaxPeopleLimit     = 100
+)
+
+// Recipients lists the users the campaign's segment rule matches now, a page
+// at a time, ordered by id. It is read-only: membership comes only from the
+// rule, and consent per channel is reported, not filtered, so the marketer
+// sees who will be skipped. A limit of 0 means DefaultPeopleLimit.
+func (s *Service) Recipients(ctx context.Context, id int64, limit, offset int) (People, error) {
+	switch {
+	case limit == 0:
+		limit = DefaultPeopleLimit
+	case limit < 0 || limit > MaxPeopleLimit:
+		return People{}, fmt.Errorf("%w: limit must be 1-%d", ErrInvalid, MaxPeopleLimit)
+	}
+	if offset < 0 {
+		return People{}, fmt.Errorf("%w: offset must not be negative", ErrInvalid)
+	}
+	c, err := s.store.Get(ctx, id)
+	if err != nil {
+		return People{}, err
+	}
+	if c.Rule == nil {
+		return People{}, fmt.Errorf("%w: the campaign has no audience yet", ErrConflict)
+	}
+	list, total, err := s.store.Matching(ctx, *c.Rule, limit, offset, s.now())
+	if err != nil {
+		return People{}, err
+	}
+	if list == nil {
+		list = []Person{}
+	}
+	return People{Recipients: list, Total: total, Limit: limit, Offset: offset}, nil
 }
 
 // Counts are a campaign's messages by status.

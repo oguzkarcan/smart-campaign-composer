@@ -128,6 +128,25 @@ export interface CampaignSummary {
   updated_at: string
 }
 
+// A user the campaign's rule matches (GET /campaigns/{id}/recipients).
+export interface Person {
+  id: number
+  first_name: string
+  city: string
+  language: Language
+  phone: string
+  email: string
+  sms_consent: boolean
+  email_consent: boolean
+}
+
+export interface People {
+  recipients: Person[]
+  total: number
+  limit: number
+  offset: number
+}
+
 export interface Problem {
   path: string
   message: string

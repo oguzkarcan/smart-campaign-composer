@@ -550,3 +550,36 @@ func TestApproveNeedsEveryLanguage(t *testing.T) {
 		t.Fatalf("approve with both languages: %v", err)
 	}
 }
+
+// The audience list pages through the rule's matches without filtering on
+// consent, and needs a segment.
+func TestRecipients(t *testing.T) {
+	svc, _ := newTestService(&llm.Mock{})
+	ctx := context.Background()
+	c, _ := svc.Create(ctx, exampleBrief, []string{"sms", "email"})
+	if _, err := svc.Recipients(ctx, c.ID, 0, 0); !errors.Is(err, campaign.ErrConflict) {
+		t.Fatalf("without a segment: err = %v", err)
+	}
+	if _, err := svc.GenerateSegment(ctx, c.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	p, err := svc.Recipients(ctx, c.ID, 2, 0)
+	if err != nil || p.Total != 3 || len(p.Recipients) != 2 || p.Limit != 2 || p.Recipients[1].SMSConsent {
+		t.Fatalf("first page %+v, err %v", p, err)
+	}
+	if p, _ = svc.Recipients(ctx, c.ID, 2, 2); len(p.Recipients) != 1 || p.Recipients[0].Language != "en" {
+		t.Fatalf("second page %+v", p)
+	}
+	if p, _ = svc.Recipients(ctx, c.ID, 0, 10); p.Recipients == nil || len(p.Recipients) != 0 || p.Limit != campaign.DefaultPeopleLimit {
+		t.Fatalf("past the end %+v", p)
+	}
+	for _, tt := range [][2]int{{-1, 0}, {campaign.MaxPeopleLimit + 1, 0}, {10, -1}} {
+		if _, err := svc.Recipients(ctx, c.ID, tt[0], tt[1]); !errors.Is(err, campaign.ErrInvalid) {
+			t.Errorf("limit %d offset %d: err = %v", tt[0], tt[1], err)
+		}
+	}
+	if _, err := svc.Recipients(ctx, 404, 0, 0); !errors.Is(err, campaign.ErrNotFound) {
+		t.Errorf("unknown campaign: err = %v", err)
+	}
+}

@@ -35,6 +35,8 @@ type MemStore struct {
 	// campaign and channel; tests set them to simulate delivery.
 	Messages map[int64]map[string]campaign.Counts
 	Failures map[int64][]campaign.FailureReason
+	// People are the users every rule matches.
+	People []campaign.Person
 }
 
 func NewMemStore() *MemStore {
@@ -47,6 +49,11 @@ func NewMemStore() *MemStore {
 		Queued:   map[int64]int{},
 		Messages: map[int64]map[string]campaign.Counts{},
 		Failures: map[int64][]campaign.FailureReason{},
+		People: []campaign.Person{
+			{ID: 1, FirstName: "Ayşe", City: "İstanbul", Language: "tr", Phone: "+905550000001", Email: "ayse@example.com", SMSConsent: true, EmailConsent: true},
+			{ID: 2, FirstName: "Mehmet", City: "Ankara", Language: "tr", Phone: "+905550000002", Email: "mehmet@example.com", EmailConsent: true},
+			{ID: 3, FirstName: "Emily", City: "İzmir", Language: "en", Phone: "+905550000003", Email: "emily@example.com", SMSConsent: true},
+		},
 	}
 }
 
@@ -234,6 +241,16 @@ func (s *MemStore) SetMessages(id int64, channel string, counts campaign.Counts,
 	counts.Total = counts.Queued + counts.Processing + counts.Retry + counts.Sent + counts.Failed
 	s.Messages[id][channel] = counts
 	s.campaigns[id].Status = status
+}
+
+// People are the users Matching pages through; NewMemStore fills in a few.
+func (s *MemStore) Matching(_ context.Context, _ segment.Rule, limit, offset int, _ time.Time) ([]campaign.Person, int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if offset >= len(s.People) {
+		return nil, len(s.People), nil
+	}
+	return slices.Clone(s.People[offset:min(offset+limit, len(s.People))]), len(s.People), nil
 }
 
 func (s *MemStore) Catalog(context.Context) (segment.Catalog, error) { return Catalog, nil }

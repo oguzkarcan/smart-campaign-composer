@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { approveCampaign, generateContent } from '@/api/client'
-import type { Campaign, Content, Language } from '@/api/types'
+import type { Campaign, Content, Language, Person } from '@/api/types'
 import { channelLabel, formatDateTime, formatNumber, languageLabel } from '@/lib/format'
 import { t } from '@/lib/i18n'
 import { languageTabs } from '@/lib/languages'
@@ -10,8 +10,8 @@ import { defaultSchedule, MAX_SCHEDULE_DAYS, parseSchedule, toLocalInput } from 
 import ChannelEditor from './ChannelEditor.vue'
 import ErrorAlert from './ErrorAlert.vue'
 
-const props = defineProps<{ campaign: Campaign }>()
-const emit = defineEmits<{ update: [campaign: Campaign]; busy: [busy: boolean] }>()
+const props = defineProps<{ campaign: Campaign; previewPerson?: Person | null }>()
+const emit = defineEmits<{ update: [campaign: Campaign]; busy: [busy: boolean]; clearPreview: [] }>()
 
 const generating = ref(false)
 const attempt = ref(1)
@@ -54,6 +54,13 @@ const contents = computed(() => {
     props.campaign.channels.map((ch) => byKey.get(`${tab.language}.${ch}`)).filter((c): c is Content => !!c),
   )
 })
+// Previewing as a person shows their language's messages.
+watch(
+  () => props.previewPerson,
+  (p) => {
+    if (p && tabs.value.some((tab) => tab.language === p.language)) activeLanguage.value = p.language
+  },
+)
 const missingLanguages = computed(() => tabs.value.filter((tab) => !tab.hasContent).map((tab) => tab.language))
 function tabState(lang: Language): 'dirty' | 'invalid' | null {
   const states = contents.value
@@ -207,7 +214,7 @@ async function approve() {
       </div>
       <details class="text-xs text-slate-500">
         <summary class="cursor-pointer">{{ t('messages.raw') }}</summary>
-        <pre class="mt-2 max-h-72 overflow-auto rounded-lg bg-slate-900 p-3 font-mono whitespace-pre-wrap text-slate-100">{{ streamed || ' ' }}<span class="animate-pulse">▍</span></pre>
+        <pre class="mt-2 max-h-72 overflow-auto rounded-lg bg-slate-900 p-3 font-mono whitespace-pre-wrap text-slate-100 dark:bg-black dark:text-slate-800">{{ streamed || ' ' }}<span class="animate-pulse">▍</span></pre>
       </details>
     </div>
 
@@ -261,6 +268,29 @@ async function approve() {
       </div>
       <p v-if="tabs.length > 1" class="text-sm text-slate-500">{{ t('messages.ownLanguage') }}</p>
 
+      <div
+        v-if="previewPerson"
+        class="flex flex-wrap items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 py-1 pr-1 pl-3 text-sm text-indigo-800"
+        role="status"
+      >
+        <span>
+          {{
+            t('preview.as', {
+              name: previewPerson.first_name,
+              city: previewPerson.city,
+              language: previewPerson.language.toUpperCase(),
+            })
+          }}
+        </span>
+        <button
+          type="button"
+          class="rounded-full bg-white px-2.5 py-0.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+          @click="emit('clearPreview')"
+        >
+          ✕ {{ t('preview.reset') }}
+        </button>
+      </div>
+
       <p
         v-if="missingLanguages.includes(activeLanguage)"
         class="rounded-xl border border-dashed border-rose-300 bg-white p-4 text-sm text-slate-600"
@@ -284,6 +314,7 @@ async function approve() {
             :variable-lengths="campaign.variable_lengths?.[c.language] ?? {}"
             :limits="campaign.limits"
             :readonly="!editable"
+            :person="previewPerson?.language === c.language ? previewPerson : null"
             @saved="emit('update', $event)"
             @state="(s) => (editorStates[`${c.language}.${c.channel}`] = s)"
           />
