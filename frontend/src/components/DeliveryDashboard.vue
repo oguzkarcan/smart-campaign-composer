@@ -27,13 +27,16 @@ function connect() {
   meter = new RateMeter()
   streamError.value = null
   connection.value = 'connecting'
+  finishedAt.value = null
   stop = watchProgress(props.campaignId, {
     onProgress(p) {
+      // Only a live transition to done marks the finish time; a campaign that
+      // was already done when opened falls back to its updated_at.
+      if (p.done && progress.value !== null && !progress.value.done) finishedAt.value = Date.now()
       progress.value = p
       connection.value = p.done ? 'closed' : 'live'
       meter.add({ at: Date.now(), finished: finished(p.totals) })
       rate.value = meter.perSecond()
-      if (p.done && finishedAt.value === null) finishedAt.value = Date.now()
       emit('status', p.status)
     },
     onConnection(state) {
