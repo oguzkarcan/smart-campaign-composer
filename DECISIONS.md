@@ -452,6 +452,31 @@ listed in the [README](README.md#unfinished-scope-and-known-gaps).
   waits until every language is saved and valid. While generating, the
   preview follows the language being written. The audience view shows a
   per-language table next to the channel counts.
+- **Interface language without an i18n library.** A typed dictionary per
+  language (`src/lib/i18n.ts`), a reactive `locale` and a `t()` lookup with
+  `{name}` placeholders. The Turkish dictionary is typed against the
+  English one, so a missing translation fails `vue-tsc`. Two languages and
+  a few hundred strings did not justify `vue-i18n`. The choice is saved in
+  `localStorage` (wrapped in try/catch: blocked storage only means it is
+  not remembered); the first visit follows the browser language.
+- **Pure helpers take the locale as an argument** (`describeRule`,
+  `formatCountdown`, `formatDuration`), so both languages are unit-tested.
+  Rule sentences use a word-order template per language: English says
+  "Added to cart at least 2 times in the last 7 days", Turkish puts the
+  window first, "Son 7 günde en az 2 kez sepete ürün ekledi".
+- **Schedule validation returns codes** (`pick`, `tooSoon`, `tooFar`) and
+  the component translates them, instead of English strings from the
+  helper. Server messages (validation problems, errors) stay as the API
+  writes them; translating them would mean keeping two copies of every
+  validation rule's wording.
+- **Marketer-first campaign page.** A step bar (Audience → Messages →
+  Delivery, from the campaign status by a tested pure function) shows where
+  the campaign is and links to each section. Messages are previewed as
+  they arrive: SMS as a phone bubble, email as an inbox card, filled in for
+  a sample recipient of that language. Technical detail stays one click
+  away instead of in the way: the segment rule JSON and the model's raw
+  streamed output are in collapsed `<details>`, and generation shows a
+  progress card.
 - **Unsaved message edits are guarded** on route changes and on closing the
   tab, since edits only reach the server on Save.
 - **Frontend checks are part of `make test`:** `vue-tsc` type checking and

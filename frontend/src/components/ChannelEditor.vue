@@ -3,9 +3,12 @@ import { computed, ref, watch } from 'vue'
 import { ApiError, editContent } from '@/api/client'
 import type { Campaign, Channel, Content, Language } from '@/api/types'
 import { checkField, render, token, VARIABLES } from '@/lib/content'
-import { channelLabels } from '@/lib/format'
+import { channelLabel } from '@/lib/format'
+import { t } from '@/lib/i18n'
+import EmailPreview from './EmailPreview.vue'
 import ErrorAlert from './ErrorAlert.vue'
 import LengthCounter from './LengthCounter.vue'
+import SmsPreview from './SmsPreview.vue'
 
 const props = defineProps<{
   campaignId: number
@@ -118,16 +121,16 @@ function fieldClass(problems: string[]) {
 <template>
   <article class="space-y-4 rounded-xl border border-slate-200 bg-white p-5">
     <header class="flex items-center justify-between gap-2">
-      <h3 class="font-semibold">{{ channelLabels[channel] }}</h3>
+      <h3 class="font-semibold">{{ channelLabel(channel) }}</h3>
       <span class="text-xs text-slate-500">
-        v{{ saved.version }}<template v-if="saved.human_edited"> · edited by you</template>
-        <template v-if="dirty"> · <span class="font-medium text-amber-600">unsaved changes</span></template>
+        {{ t('editor.version', { n: saved.version }) }}<template v-if="saved.human_edited"> · {{ t('editor.edited') }}</template>
+        <template v-if="dirty"> · <span class="font-medium text-amber-600">{{ t('editor.unsaved') }}</span></template>
       </span>
     </header>
 
     <div v-if="isEmail">
       <div class="flex items-baseline justify-between">
-        <label :for="`${language}-${channel}-subject`" class="text-sm font-medium">Subject</label>
+        <label :for="`${language}-${channel}-subject`" class="text-sm font-medium">{{ t('editor.subject') }}</label>
         <LengthCounter
           :count="subjectCheck.worstCase"
           :limit="subjectCheck.limit"
@@ -143,13 +146,13 @@ function fieldClass(problems: string[]) {
         class="mt-1"
       />
       <ul class="mt-1 space-y-0.5 text-xs text-rose-600">
-        <li v-for="p in problemsFor('subject', subjectCheck.problems)" :key="p">Subject {{ p }}</li>
+        <li v-for="p in problemsFor('subject', subjectCheck.problems)" :key="p">{{ t('editor.subject') }}: {{ p }}</li>
       </ul>
     </div>
 
     <div>
       <div class="flex items-baseline justify-between">
-        <label :for="`${language}-${channel}-body`" class="text-sm font-medium">{{ isEmail ? 'Body' : 'Message' }}</label>
+        <label :for="`${language}-${channel}-body`" class="text-sm font-medium">{{ isEmail ? t('editor.body') : t('editor.message') }}</label>
         <LengthCounter :count="bodyCheck.worstCase" :limit="bodyCheck.limit" :variables="variableLengths" />
       </div>
       <textarea
@@ -162,10 +165,10 @@ function fieldClass(problems: string[]) {
         class="mt-1"
       />
       <ul class="mt-1 space-y-0.5 text-xs text-rose-600">
-        <li v-for="p in problemsFor('body', bodyCheck.problems)" :key="p">{{ isEmail ? 'Body' : 'Message' }} {{ p }}</li>
+        <li v-for="p in problemsFor('body', bodyCheck.problems)" :key="p">{{ isEmail ? t('editor.body') : t('editor.message') }}: {{ p }}</li>
       </ul>
       <div v-if="!readonly" class="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-        <span>Insert:</span>
+        <span>{{ t('editor.insert') }}</span>
         <button
           v-for="v in VARIABLES"
           :key="v"
@@ -179,13 +182,20 @@ function fieldClass(problems: string[]) {
       </div>
     </div>
 
-    <div class="rounded-lg bg-slate-50 p-3 text-sm [overflow-wrap:anywhere]">
-      <p class="text-xs font-medium tracking-wide text-slate-500 uppercase">Preview for {{ sample.first_name }} in {{ sample.city }}</p>
-      <p v-if="isEmail" class="mt-1 font-medium">{{ render(subject.trim(), sample) }}</p>
-      <p class="mt-1 whitespace-pre-line text-slate-700">{{ render(body.trim(), sample) }}</p>
+    <div class="space-y-2 rounded-lg bg-slate-50 p-3">
+      <p class="text-xs font-medium tracking-wide text-slate-500 uppercase">
+        {{ t('preview.title', { name: sample.first_name, city: sample.city }) }}
+      </p>
+      <EmailPreview
+        v-if="isEmail"
+        :subject="render(subject.trim(), sample)"
+        :body="render(body.trim(), sample)"
+        :recipient="sample.first_name"
+      />
+      <SmsPreview v-else :text="render(body.trim(), sample)" :recipient="sample.first_name" />
     </div>
 
-    <ErrorAlert v-if="showSaveAlert" :error="saveError" title="Could not save" />
+    <ErrorAlert v-if="showSaveAlert" :error="saveError" :title="t('editor.saveError')" />
 
     <footer v-if="!readonly && dirty" class="flex gap-2">
       <button
@@ -194,7 +204,7 @@ function fieldClass(problems: string[]) {
         class="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
         @click="save"
       >
-        {{ saving ? 'Saving…' : 'Save changes' }}
+        {{ saving ? t('editor.saving') : t('editor.save') }}
       </button>
       <button
         type="button"
@@ -202,7 +212,7 @@ function fieldClass(problems: string[]) {
         class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium hover:bg-slate-50"
         @click="reset"
       >
-        Discard
+        {{ t('editor.discard') }}
       </button>
     </footer>
   </article>

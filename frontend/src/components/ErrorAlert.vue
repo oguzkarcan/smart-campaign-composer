@@ -1,10 +1,18 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { ApiError } from '@/api/client'
+import { ApiError, TIMED_OUT, UNREACHABLE } from '@/api/client'
+import { t } from '@/lib/i18n'
 
 const props = defineProps<{ error: unknown; title?: string }>()
 
-const message = computed(() => (props.error instanceof Error ? props.error.message : String(props.error)))
+// The client's own transport messages are translated; the API's messages are
+// shown as the server wrote them.
+const message = computed(() => {
+  const text = props.error instanceof Error ? props.error.message : String(props.error)
+  if (text === UNREACHABLE) return t('api.unreachable')
+  if (text === TIMED_OUT) return t('api.timedOut')
+  return text
+})
 const problems = computed(() => (props.error instanceof ApiError ? props.error.problems : []))
 </script>
 

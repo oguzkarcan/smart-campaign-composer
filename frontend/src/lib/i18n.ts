@@ -1,0 +1,489 @@
+// UI language (TR | EN toggle in the header). A small dictionary lookup, no
+// library: the UI has a few hundred strings and two languages. The Turkish
+// dictionary is typed against the English one, so a missing key fails the
+// type check. Texts that come from the API (validation problems, errors)
+// stay as the server wrote them.
+import { ref } from 'vue'
+
+export type Locale = 'tr' | 'en'
+
+export const LOCALES: readonly Locale[] = ['tr', 'en']
+
+const en = {
+  // App shell
+  'app.title': 'Smart Campaign Composer',
+  'nav.campaigns': 'Campaigns',
+  'nav.new': 'New campaign',
+  'nav.back': '← Campaigns',
+  'nav.uiLanguage': 'Interface language',
+  'api.checking': 'Checking API…',
+  'api.ok': 'API online',
+  'api.down': 'API unreachable',
+  'api.checkAgain': 'Check again',
+  'api.unreachable': 'Cannot reach the API. Check that the backend is running, then try again.',
+  'api.timedOut': 'The API did not answer in time. Try again.',
+  'common.retry': 'Retry',
+  'common.loading': 'Loading…',
+  'common.loadMore': 'Load more',
+
+  // Labels
+  'channel.sms': 'SMS',
+  'channel.email': 'Email',
+  'language.tr': 'Turkish',
+  'language.en': 'English',
+  'status.draft': 'Draft',
+  'status.audience_ready': 'Audience ready',
+  'status.content_ready': 'Messages ready',
+  'status.approved': 'Approved',
+  'status.scheduled': 'Scheduled',
+  'status.sending': 'Sending',
+  'status.completed': 'Completed',
+  'status.failed': 'Failed',
+  'count.sent': 'Sent',
+  'count.failed': 'Failed',
+  'count.processing': 'Sending',
+  'count.retry': 'Retrying',
+  'count.queued': 'Queued',
+
+  // Steps
+  'steps.label': 'Campaign progress',
+  'steps.audience': 'Audience',
+  'steps.messages': 'Messages',
+  'steps.delivery': 'Delivery',
+  'steps.audience.current': 'Build the audience',
+  'steps.audience.done': '{n} people',
+  'steps.messages.upcoming': 'After the audience',
+  'steps.messages.current': 'Write, review, approve',
+  'steps.messages.done': 'Approved',
+  'steps.delivery.upcoming': 'After approval',
+  'steps.delivery.scheduled': 'Scheduled',
+  'steps.delivery.sending': 'Sending now',
+  'steps.delivery.completed': 'Delivered',
+  'steps.delivery.failed': 'Nothing delivered',
+
+  // Campaign list
+  'list.title': 'Campaigns',
+  'list.loadError': 'Could not load campaigns',
+  'list.empty': 'No campaigns yet',
+  'list.emptyHint': 'Write a brief and Claude proposes the audience and the messages.',
+  'list.createFirst': 'Create your first campaign',
+  'list.sent': '{sent} / {total} sent',
+  'list.failed': '· {n} failed',
+  'list.sends': 'Sends {date}',
+
+  // New campaign
+  'new.title': 'New campaign',
+  'new.intro':
+    'Describe a campaign in plain language. Claude proposes the audience and the messages, and you approve them before anything is sent.',
+  'new.brief': 'Campaign brief',
+  'new.placeholder': 'Who should receive it, and what should it say?',
+  'new.try': 'Try:',
+  'new.channels': 'Channels',
+  'new.pickChannel': 'Pick at least one channel.',
+  'new.createError': 'Could not create the campaign',
+  'new.submit': 'Build audience',
+  'new.submitting': 'Building audience…',
+  'new.submittingHint': 'Claude is turning the brief into a segment rule.',
+
+  // Campaign page
+  'campaign.title': 'Campaign #{id}',
+  'campaign.notFound': 'Campaign #{id} does not exist.',
+  'campaign.backToList': 'Back to campaigns',
+  'campaign.loadError': 'Could not load the campaign',
+  'campaign.channels': 'Channels:',
+
+  // Audience
+  'audience.title': 'Audience',
+  'audience.regenerate': 'Regenerate audience',
+  'audience.regenerating': 'Regenerating…',
+  'audience.confirmRegenerate': 'A new audience discards the generated messages. Continue?',
+  'audience.error': 'Claude could not build a valid audience',
+  'audience.lastError': 'The last attempt failed',
+  'audience.none': 'This campaign has no audience yet.',
+  'audience.who': 'Who gets this campaign',
+  'audience.json': 'Technical details: segment rule (JSON)',
+  'audience.matching': 'Matching people',
+  'audience.recipients': '{channel} recipients',
+  'audience.optedIn': 'Matching people who opted in to {channel}',
+  'audience.nobodyOptedIn': 'Nobody in this audience opted in to {channel}.',
+  'audience.byLanguage': 'By language: each recipient gets the message written in their language.',
+  'audience.language': 'Language',
+
+  // Rule descriptions
+  'rule.allUsers': 'All users',
+  'rule.all': 'All of these',
+  'rule.any': 'Any of these',
+  'rule.field.city': 'City',
+  'rule.field.language': 'Language',
+  'rule.is': '{field} is {values}',
+  'rule.isNot': '{field} is not {values}',
+  'rule.or': 'or',
+  'rule.lastDay': 'in the last day',
+  'rule.lastDays': 'in the last {n} days',
+  'rule.atLeast': 'at least {n} times',
+  // Word order of an event line; times is empty or "at least n times".
+  'rule.eventLine': '{did} {times} {window}',
+  'rule.event.page_view': 'Viewed a page',
+  'rule.event.page_view.not': 'Did not view any page',
+  'rule.event.cart_add': 'Added to cart',
+  'rule.event.cart_add.not': 'Did not add to cart',
+  'rule.event.purchase': 'Made a purchase',
+  'rule.event.purchase.not': 'Did not make a purchase',
+  'rule.event.other': 'Did {event}',
+  'rule.event.other.not': 'Did not do {event}',
+
+  // Messages
+  'messages.title': 'Messages',
+  'messages.regenerate': 'Regenerate messages',
+  'messages.confirmRegenerate': 'New messages replace your edits. Continue?',
+  'messages.error': 'Claude could not write valid messages',
+  'messages.writing': 'Claude is writing the {language} messages…',
+  'messages.writingAny': 'Claude is writing the messages…',
+  'messages.repairing': 'Fixing the {language} messages (attempt {n})…',
+  'messages.languageOf': '({i} of {n} languages)',
+  'messages.cancel': 'Cancel',
+  'messages.raw': 'Show what Claude is writing (raw JSON)',
+  'messages.next': 'Next, let Claude write the messages for this audience.',
+  'messages.generate': 'Generate messages',
+  'messages.unreachable': 'Nobody in this audience can be reached on the chosen channels. Change the brief or the channels.',
+  'messages.afterAudience': 'Messages are written once the audience is ready.',
+  'messages.tabs': 'Message language',
+  'messages.tabCount': '{n} messages',
+  'messages.noMessagesYet': 'No messages yet',
+  'messages.hasProblems': 'Has problems',
+  'messages.unsaved': 'Unsaved changes',
+  'messages.ownLanguage': 'Each recipient gets the message in their own language.',
+  'messages.missing':
+    'This audience now includes {language} readers, but there are no {language} messages yet. Generate the messages again to write them.',
+  'messages.leave': 'You have unsaved message changes. Leave without saving?',
+  'messages.approveError': 'Could not approve',
+  'messages.when': 'When should the messages go out?',
+  'messages.sendNow': 'Send now',
+  'messages.later': 'Schedule for later',
+  'messages.sendTime': 'Send date and time',
+  'messages.fixedNow': 'Recipients and content are fixed now; sending starts {date} (your local time).',
+  'messages.approveSend': 'Approve and send',
+  'messages.approveSchedule': 'Approve and schedule',
+  'messages.approving': 'Approving…',
+  'messages.hintMissing': 'Generate the messages again to include {languages}.',
+  'messages.hintDirty': 'Save or discard your changes in every language before approving.',
+  'messages.hintInvalid': 'Fix the problems in every language before approving.',
+  'messages.confirmSchedule': 'Schedule {parts} messages for {date}? The content is locked after this.',
+  'messages.confirmSend': 'Approve and send {parts} messages now? The content is locked after this.',
+  'messages.and': 'and',
+  'messages.locked': 'This content was approved and is locked.',
+  'messages.lockedScheduled': 'This content was approved and is locked; it will be sent {date}.',
+  'schedule.pick': 'Pick a date and time.',
+  'schedule.tooSoon': 'Pick a time at least a minute from now.',
+  'schedule.tooFar': 'Pick a time within {days} days.',
+
+  // Editor
+  'editor.version': 'v{n}',
+  'editor.edited': 'edited by you',
+  'editor.unsaved': 'unsaved changes',
+  'editor.subject': 'Subject',
+  'editor.body': 'Body',
+  'editor.message': 'Message',
+  'editor.insert': 'Insert:',
+  'editor.worstCase': '{count} / {limit} worst case',
+  'editor.worstCaseTitle': 'Worst case after personalization: {vars}',
+  'editor.countsAs': '{name} counts as {n}',
+  'editor.saveError': 'Could not save',
+  'editor.save': 'Save changes',
+  'editor.saving': 'Saving…',
+  'editor.discard': 'Discard',
+  'preview.title': 'Preview for {name} in {city}',
+  'preview.sender': 'Brand',
+  'preview.now': 'now',
+  'preview.from': 'From',
+  'preview.to': 'To',
+  'preview.noSubject': '(no subject)',
+
+  // Delivery
+  'delivery.title': 'Delivery',
+  'delivery.connecting': 'Connecting…',
+  'delivery.live': 'Live',
+  'delivery.reconnecting': 'Reconnecting…',
+  'delivery.closed': 'Not live',
+  'delivery.scheduled': 'Scheduled',
+  'delivery.finished': 'Delivery finished',
+  'delivery.finishedFailures': 'Finished with failures',
+  'delivery.stopped': 'Live updates stopped',
+  'delivery.reconnect': 'Reconnect',
+  'delivery.finishedOf': '{done} of {total} messages finished',
+  'delivery.throughput': 'Throughput',
+  'delivery.perSecond': '{n} msg/s',
+  'delivery.took': 'Took',
+  'delivery.elapsed': 'Elapsed',
+  'delivery.channel': 'Channel',
+  'delivery.progress': 'Progress',
+  'delivery.total': 'Total',
+  'delivery.failures': 'Failure reasons',
+  'delivery.scheduledFor': 'Scheduled for {date}',
+  'delivery.startsIn': 'sending starts {countdown}',
+  'delivery.waiting': '{n} messages are queued and waiting.',
+  'time.now': 'now',
+  'time.underMinute': 'in less than a minute',
+  'time.minutes': 'in {m} min',
+  'time.hours': 'in {h} h {m} min',
+  'time.days': 'in {d} d',
+  'time.daysHours': 'in {d} d {h} h',
+  'time.duration': '{m}m {s}s',
+  'time.seconds': '{s}s',
+}
+
+export type MessageKey = keyof typeof en
+
+const tr: Record<MessageKey, string> = {
+  'app.title': 'Smart Campaign Composer',
+  'nav.campaigns': 'Kampanyalar',
+  'nav.new': 'Yeni kampanya',
+  'nav.back': '← Kampanyalar',
+  'nav.uiLanguage': 'Arayüz dili',
+  'api.checking': 'API kontrol ediliyor…',
+  'api.ok': 'API çalışıyor',
+  'api.down': 'API erişilemiyor',
+  'api.checkAgain': 'Tekrar dene',
+  'api.unreachable': 'API’ye ulaşılamıyor. Backend’in çalıştığını kontrol edip tekrar deneyin.',
+  'api.timedOut': 'API zamanında yanıt vermedi. Tekrar deneyin.',
+  'common.retry': 'Tekrar dene',
+  'common.loading': 'Yükleniyor…',
+  'common.loadMore': 'Daha fazla yükle',
+
+  'channel.sms': 'SMS',
+  'channel.email': 'E-posta',
+  'language.tr': 'Türkçe',
+  'language.en': 'İngilizce',
+  'status.draft': 'Taslak',
+  'status.audience_ready': 'Kitle hazır',
+  'status.content_ready': 'Mesajlar hazır',
+  'status.approved': 'Onaylandı',
+  'status.scheduled': 'Zamanlandı',
+  'status.sending': 'Gönderiliyor',
+  'status.completed': 'Tamamlandı',
+  'status.failed': 'Başarısız',
+  'count.sent': 'Gönderildi',
+  'count.failed': 'Başarısız',
+  'count.processing': 'Gönderiliyor',
+  'count.retry': 'Yeniden deneniyor',
+  'count.queued': 'Sırada',
+
+  'steps.label': 'Kampanya adımları',
+  'steps.audience': 'Kitle',
+  'steps.messages': 'Mesajlar',
+  'steps.delivery': 'Gönderim',
+  'steps.audience.current': 'Kitleyi oluşturun',
+  'steps.audience.done': '{n} kişi',
+  'steps.messages.upcoming': 'Kitleden sonra',
+  'steps.messages.current': 'Yazın, inceleyin, onaylayın',
+  'steps.messages.done': 'Onaylandı',
+  'steps.delivery.upcoming': 'Onaydan sonra',
+  'steps.delivery.scheduled': 'Zamanlandı',
+  'steps.delivery.sending': 'Gönderiliyor',
+  'steps.delivery.completed': 'Teslim edildi',
+  'steps.delivery.failed': 'Hiçbiri teslim edilemedi',
+
+  'list.title': 'Kampanyalar',
+  'list.loadError': 'Kampanyalar yüklenemedi',
+  'list.empty': 'Henüz kampanya yok',
+  'list.emptyHint': 'Bir brief yazın; Claude kitleyi ve mesajları önersin.',
+  'list.createFirst': 'İlk kampanyanızı oluşturun',
+  'list.sent': '{sent} / {total} gönderildi',
+  'list.failed': '· {n} başarısız',
+  'list.sends': 'Gönderim: {date}',
+
+  'new.title': 'Yeni kampanya',
+  'new.intro':
+    'Kampanyayı sade bir dille anlatın. Claude kitleyi ve mesajları önerir; hiçbir şey siz onaylamadan gönderilmez.',
+  'new.brief': 'Kampanya brief’i',
+  'new.placeholder': 'Kimlere gitsin, ne söylesin?',
+  'new.try': 'Örnek:',
+  'new.channels': 'Kanallar',
+  'new.pickChannel': 'En az bir kanal seçin.',
+  'new.createError': 'Kampanya oluşturulamadı',
+  'new.submit': 'Kitleyi oluştur',
+  'new.submitting': 'Kitle oluşturuluyor…',
+  'new.submittingHint': 'Claude brief’i bir segment kuralına çeviriyor.',
+
+  'campaign.title': 'Kampanya #{id}',
+  'campaign.notFound': 'Kampanya #{id} bulunamadı.',
+  'campaign.backToList': 'Kampanyalara dön',
+  'campaign.loadError': 'Kampanya yüklenemedi',
+  'campaign.channels': 'Kanallar:',
+
+  'audience.title': 'Kitle',
+  'audience.regenerate': 'Kitleyi yeniden oluştur',
+  'audience.regenerating': 'Yeniden oluşturuluyor…',
+  'audience.confirmRegenerate': 'Yeni bir kitle, yazılmış mesajları siler. Devam edilsin mi?',
+  'audience.error': 'Claude geçerli bir kitle oluşturamadı',
+  'audience.lastError': 'Son deneme başarısız oldu',
+  'audience.none': 'Bu kampanyanın henüz bir kitlesi yok.',
+  'audience.who': 'Bu kampanya kimlere gidecek',
+  'audience.json': 'Teknik ayrıntı: segment kuralı (JSON)',
+  'audience.matching': 'Eşleşen kişi',
+  'audience.recipients': '{channel} alıcısı',
+  'audience.optedIn': 'Eşleşen ve {channel} izni veren kişiler',
+  'audience.nobodyOptedIn': 'Bu kitlede {channel} izni veren kimse yok.',
+  'audience.byLanguage': 'Dile göre: her alıcı mesajı kendi dilinde alır.',
+  'audience.language': 'Dil',
+
+  'rule.allUsers': 'Tüm kullanıcılar',
+  'rule.all': 'Bunların hepsi',
+  'rule.any': 'Bunlardan herhangi biri',
+  'rule.field.city': 'Şehir',
+  'rule.field.language': 'Dil',
+  'rule.is': '{field}: {values}',
+  'rule.isNot': '{field}: {values} dışında',
+  'rule.or': 'veya',
+  'rule.lastDay': 'Son 1 günde',
+  'rule.lastDays': 'Son {n} günde',
+  'rule.atLeast': 'en az {n} kez',
+  'rule.eventLine': '{window} {times} {did}',
+  'rule.event.page_view': 'sayfa görüntüledi',
+  'rule.event.page_view.not': 'hiç sayfa görüntülemedi',
+  'rule.event.cart_add': 'sepete ürün ekledi',
+  'rule.event.cart_add.not': 'sepete ürün eklemedi',
+  'rule.event.purchase': 'satın alma yaptı',
+  'rule.event.purchase.not': 'satın alma yapmadı',
+  'rule.event.other': '{event} yaptı',
+  'rule.event.other.not': '{event} yapmadı',
+
+  'messages.title': 'Mesajlar',
+  'messages.regenerate': 'Mesajları yeniden yaz',
+  'messages.confirmRegenerate': 'Yeni mesajlar düzenlemelerinizin yerini alır. Devam edilsin mi?',
+  'messages.error': 'Claude geçerli mesajlar yazamadı',
+  'messages.writing': 'Claude {language} mesajları yazıyor…',
+  'messages.writingAny': 'Claude mesajları yazıyor…',
+  'messages.repairing': '{language} mesajlar düzeltiliyor ({n}. deneme)…',
+  'messages.languageOf': '({n} dilden {i}.)',
+  'messages.cancel': 'İptal',
+  'messages.raw': 'Claude’un yazdığını göster (ham JSON)',
+  'messages.next': 'Sırada: Claude bu kitle için mesajları yazsın.',
+  'messages.generate': 'Mesajları yaz',
+  'messages.unreachable': 'Bu kitledeki kimseye seçilen kanallardan ulaşılamıyor. Brief’i veya kanalları değiştirin.',
+  'messages.afterAudience': 'Mesajlar kitle hazır olunca yazılır.',
+  'messages.tabs': 'Mesaj dili',
+  'messages.tabCount': '{n} mesaj',
+  'messages.noMessagesYet': 'Henüz mesaj yok',
+  'messages.hasProblems': 'Sorunlar var',
+  'messages.unsaved': 'Kaydedilmemiş değişiklikler',
+  'messages.ownLanguage': 'Her alıcı mesajı kendi dilinde alır.',
+  'messages.missing':
+    'Bu kitlede artık {language} okuyan kişiler de var, ama henüz {language} mesaj yok. Yazmak için mesajları yeniden oluşturun.',
+  'messages.leave': 'Kaydedilmemiş mesaj değişiklikleriniz var. Kaydetmeden çıkılsın mı?',
+  'messages.approveError': 'Onaylanamadı',
+  'messages.when': 'Mesajlar ne zaman gönderilsin?',
+  'messages.sendNow': 'Hemen gönder',
+  'messages.later': 'İleri bir tarihe zamanla',
+  'messages.sendTime': 'Gönderim tarihi ve saati',
+  'messages.fixedNow': 'Alıcılar ve içerik şimdi sabitlenir; gönderim {date} tarihinde başlar (yerel saatiniz).',
+  'messages.approveSend': 'Onayla ve gönder',
+  'messages.approveSchedule': 'Onayla ve zamanla',
+  'messages.approving': 'Onaylanıyor…',
+  'messages.hintMissing': '{languages} mesajlar için mesajları yeniden yazın.',
+  'messages.hintDirty': 'Onaylamadan önce her dildeki değişiklikleri kaydedin veya geri alın.',
+  'messages.hintInvalid': 'Onaylamadan önce her dildeki sorunları düzeltin.',
+  'messages.confirmSchedule': '{parts} mesaj {date} için zamanlansın mı? Bundan sonra içerik kilitlenir.',
+  'messages.confirmSend': '{parts} mesaj şimdi onaylanıp gönderilsin mi? Bundan sonra içerik kilitlenir.',
+  'messages.and': 've',
+  'messages.locked': 'Bu içerik onaylandı ve kilitlendi.',
+  'messages.lockedScheduled': 'Bu içerik onaylandı ve kilitlendi; {date} tarihinde gönderilecek.',
+  'schedule.pick': 'Bir tarih ve saat seçin.',
+  'schedule.tooSoon': 'En az bir dakika sonrası için bir saat seçin.',
+  'schedule.tooFar': '{days} gün içinde bir zaman seçin.',
+
+  'editor.version': 's{n}',
+  'editor.edited': 'sizin düzenlemeniz',
+  'editor.unsaved': 'kaydedilmemiş değişiklikler',
+  'editor.subject': 'Konu',
+  'editor.body': 'Metin',
+  'editor.message': 'Mesaj',
+  'editor.insert': 'Ekle:',
+  'editor.worstCase': 'en kötü durumda {count} / {limit}',
+  'editor.worstCaseTitle': 'Kişiselleştirme sonrası en kötü durum: {vars}',
+  'editor.countsAs': '{name} {n} karakter sayılır',
+  'editor.saveError': 'Kaydedilemedi',
+  'editor.save': 'Değişiklikleri kaydet',
+  'editor.saving': 'Kaydediliyor…',
+  'editor.discard': 'Geri al',
+  'preview.title': 'Önizleme: {name}, {city}',
+  'preview.sender': 'Marka',
+  'preview.now': 'şimdi',
+  'preview.from': 'Kimden',
+  'preview.to': 'Kime',
+  'preview.noSubject': '(konu yok)',
+
+  'delivery.title': 'Gönderim',
+  'delivery.connecting': 'Bağlanıyor…',
+  'delivery.live': 'Canlı',
+  'delivery.reconnecting': 'Yeniden bağlanıyor…',
+  'delivery.closed': 'Canlı değil',
+  'delivery.scheduled': 'Zamanlandı',
+  'delivery.finished': 'Gönderim tamamlandı',
+  'delivery.finishedFailures': 'Hatalarla tamamlandı',
+  'delivery.stopped': 'Canlı güncellemeler durdu',
+  'delivery.reconnect': 'Yeniden bağlan',
+  'delivery.finishedOf': '{total} mesajdan {done} tanesi tamamlandı',
+  'delivery.throughput': 'Hız',
+  'delivery.perSecond': '{n} mesaj/sn',
+  'delivery.took': 'Süre',
+  'delivery.elapsed': 'Geçen süre',
+  'delivery.channel': 'Kanal',
+  'delivery.progress': 'İlerleme',
+  'delivery.total': 'Toplam',
+  'delivery.failures': 'Hata nedenleri',
+  'delivery.scheduledFor': '{date} için zamanlandı',
+  'delivery.startsIn': 'gönderim {countdown} başlıyor',
+  'delivery.waiting': '{n} mesaj sırada bekliyor.',
+  'time.now': 'şimdi',
+  'time.underMinute': 'bir dakikadan kısa sürede',
+  'time.minutes': '{m} dk sonra',
+  'time.hours': '{h} sa {m} dk sonra',
+  'time.days': '{d} gün sonra',
+  'time.daysHours': '{d} gün {h} sa sonra',
+  'time.duration': '{m} dk {s} sn',
+  'time.seconds': '{s} sn',
+}
+
+const dictionaries: Record<Locale, Record<MessageKey, string>> = { en, tr }
+
+export type Params = Record<string, string | number>
+
+// translate is the pure lookup: {name} placeholders are replaced by params.
+export function translate(locale: Locale, key: MessageKey, params?: Params): string {
+  const text = dictionaries[locale][key]
+  if (!params) return text
+  return text.replace(/\{(\w+)\}/g, (m, name: string) => (name in params ? String(params[name]) : m))
+}
+
+const STORAGE_KEY = 'scc.locale'
+
+function initialLocale(): Locale {
+  if (typeof window === 'undefined') return 'en' // unit tests run without a browser
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY)
+    if (saved === 'tr' || saved === 'en') return saved
+  } catch {
+    // Storage can be blocked (private mode); fall back to the browser language.
+  }
+  return navigator.language?.toLowerCase().startsWith('tr') ? 'tr' : 'en'
+}
+
+// locale is reactive: templates and computeds that call t() re-render when
+// it changes.
+export const locale = ref<Locale>(initialLocale())
+
+export function setLocale(l: Locale) {
+  locale.value = l
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem(STORAGE_KEY, l)
+  } catch {
+    // Not remembered, but the switch still works for this visit.
+  }
+  document.documentElement.lang = l
+}
+
+export function t(key: MessageKey, params?: Params): string {
+  return translate(locale.value, key, params)
+}

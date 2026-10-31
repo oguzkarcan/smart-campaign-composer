@@ -125,7 +125,7 @@ segment DSL + validator + SQL compiler + consent.
   worker render and send the message matching each recipient's
   `users.language`, add language tabs in the UI editor + language counts in the
   audience view, and tests.
-- [ ] 3. Marketer-oriented UX polish & UI `TR / EN` switcher: a `TR | EN`
+- [x] 3. Marketer-oriented UX polish & UI `TR / EN` switcher: a `TR | EN`
   language toggle in the header (`localStorage`) that switches UI labels, status
   badges, and readable segment rules (`describeRule`) between Turkish and
   English; a friendlier campaign view (a clear step progress bar

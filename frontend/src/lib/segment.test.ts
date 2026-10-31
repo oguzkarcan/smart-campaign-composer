@@ -53,3 +53,39 @@ describe('describeRule', () => {
     expect(got.children).toEqual([{ text: 'tier is not gold or silver' }, { text: 'Did signup in the last 3 days' }])
   })
 })
+
+describe('describeRule in Turkish', () => {
+  it('puts the time window first and translates values', () => {
+    const got = describeRule(
+      {
+        match: 'all',
+        conditions: [
+          { field: 'city', op: 'in', value: ['İstanbul', 'Ankara'] },
+          { field: 'language', op: 'neq', value: ['en'] },
+          {
+            match: 'any',
+            conditions: [
+              { event: 'cart_add', within_days: 7, exists: true, min_count: 2 },
+              { event: 'page_view', within_days: 1, exists: true },
+            ],
+          },
+          { event: 'purchase', within_days: 30, exists: false },
+        ],
+      },
+      'tr',
+    )
+    expect(got).toEqual({
+      text: 'Bunların hepsi',
+      children: [
+        { text: 'Şehir: İstanbul veya Ankara' },
+        { text: 'Dil: İngilizce dışında' },
+        {
+          text: 'Bunlardan herhangi biri',
+          children: [{ text: 'Son 7 günde en az 2 kez sepete ürün ekledi' }, { text: 'Son 1 günde sayfa görüntüledi' }],
+        },
+        { text: 'Son 30 günde satın alma yapmadı' },
+      ],
+    })
+    expect(describeRule({ match: 'all', conditions: [] }, 'tr')).toEqual({ text: 'Tüm kullanıcılar' })
+  })
+})

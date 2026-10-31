@@ -1,14 +1,16 @@
 import type { Counts } from '@/api/types'
+import { type Locale, type MessageKey, translate } from './i18n'
 
 export type CountKey = Exclude<keyof Counts, 'total'>
 
-// Bar segments in display order, finished states first.
-export const SEGMENTS: readonly { key: CountKey; label: string; bar: string; dot: string }[] = [
-  { key: 'sent', label: 'Sent', bar: 'bg-emerald-500', dot: 'bg-emerald-500' },
-  { key: 'failed', label: 'Failed', bar: 'bg-rose-500', dot: 'bg-rose-500' },
-  { key: 'processing', label: 'Sending', bar: 'bg-indigo-400', dot: 'bg-indigo-400' },
-  { key: 'retry', label: 'Retrying', bar: 'bg-amber-400', dot: 'bg-amber-400' },
-  { key: 'queued', label: 'Queued', bar: 'bg-slate-300', dot: 'bg-slate-300' },
+// Bar segments in display order, finished states first; label is a
+// message key.
+export const SEGMENTS: readonly { key: CountKey; label: MessageKey; bar: string; dot: string }[] = [
+  { key: 'sent', label: 'count.sent', bar: 'bg-emerald-500', dot: 'bg-emerald-500' },
+  { key: 'failed', label: 'count.failed', bar: 'bg-rose-500', dot: 'bg-rose-500' },
+  { key: 'processing', label: 'count.processing', bar: 'bg-indigo-400', dot: 'bg-indigo-400' },
+  { key: 'retry', label: 'count.retry', bar: 'bg-amber-400', dot: 'bg-amber-400' },
+  { key: 'queued', label: 'count.queued', bar: 'bg-slate-300', dot: 'bg-slate-300' },
 ]
 
 export const emptyCounts: Counts = { total: 0, queued: 0, processing: 0, retry: 0, sent: 0, failed: 0 }
@@ -60,9 +62,11 @@ export class RateMeter {
 }
 
 // formatDuration renders a duration as "42s" or "3m 05s".
-export function formatDuration(ms: number): string {
+export function formatDuration(ms: number, locale: Locale = 'en'): string {
   const total = Math.max(0, Math.round(ms / 1000))
   const m = Math.floor(total / 60)
   const s = total % 60
-  return m > 0 ? `${m}m ${String(s).padStart(2, '0')}s` : `${s}s`
+  return m > 0
+    ? translate(locale, 'time.duration', { m, s: String(s).padStart(2, '0') })
+    : translate(locale, 'time.seconds', { s })
 }

@@ -2,7 +2,8 @@
 import { computed } from 'vue'
 import type { Audience, Channel } from '@/api/types'
 import { LANGUAGES } from '@/api/types'
-import { channelLabels, formatNumber, languageLabels } from '@/lib/format'
+import { channelLabel, formatNumber, languageLabel } from '@/lib/format'
+import { t } from '@/lib/i18n'
 
 const props = defineProps<{ audience: Audience; channels: Channel[] }>()
 
@@ -16,17 +17,17 @@ const languages = computed(() =>
   <div class="space-y-3">
     <dl class="grid grid-cols-1 gap-3 sm:grid-cols-3">
       <div class="rounded-lg border border-slate-200 bg-white p-4">
-        <dt class="text-sm text-slate-500">Matching users</dt>
+        <dt class="text-sm text-slate-500">{{ t('audience.matching') }}</dt>
         <dd class="mt-1 text-2xl font-semibold tabular-nums">{{ formatNumber(audience.matched) }}</dd>
       </div>
       <div v-for="ch in channels" :key="ch" class="rounded-lg border border-slate-200 bg-white p-4">
-        <dt class="text-sm text-slate-500">{{ channelLabels[ch] }} recipients</dt>
+        <dt class="text-sm text-slate-500">{{ t('audience.recipients', { channel: channelLabel(ch) }) }}</dt>
         <dd class="mt-1 text-2xl font-semibold tabular-nums" :class="{ 'text-rose-600': audience[ch] === 0 }">
           {{ formatNumber(audience[ch]) }}
         </dd>
         <p class="mt-1 text-xs text-slate-500">
-          <template v-if="audience[ch] === 0">Nobody in this audience opted in to {{ channelLabels[ch] }}.</template>
-          <template v-else>Matching users who opted in to {{ channelLabels[ch] }}</template>
+          <template v-if="audience[ch] === 0">{{ t('audience.nobodyOptedIn', { channel: channelLabel(ch) }) }}</template>
+          <template v-else>{{ t('audience.optedIn', { channel: channelLabel(ch) }) }}</template>
         </p>
       </div>
     </dl>
@@ -34,18 +35,18 @@ const languages = computed(() =>
     <div v-if="languages.length" class="overflow-x-auto rounded-lg border border-slate-200 bg-white">
       <table class="w-full text-sm">
         <caption class="px-4 pt-3 text-left text-sm text-slate-500">
-          By language: each recipient gets the message written in their language.
+          {{ t('audience.byLanguage') }}
         </caption>
         <thead class="text-left text-xs text-slate-500">
           <tr>
-            <th class="px-4 py-2 font-medium">Language</th>
-            <th class="px-4 py-2 text-right font-medium">Matching</th>
-            <th v-for="ch in channels" :key="ch" class="px-4 py-2 text-right font-medium">{{ channelLabels[ch] }}</th>
+            <th class="px-4 py-2 font-medium">{{ t('audience.language') }}</th>
+            <th class="px-4 py-2 text-right font-medium">{{ t('audience.matching') }}</th>
+            <th v-for="ch in channels" :key="ch" class="px-4 py-2 text-right font-medium">{{ channelLabel(ch) }}</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-slate-100 tabular-nums">
           <tr v-for="row in languages" :key="row.language">
-            <th scope="row" class="px-4 py-2 text-left font-medium">{{ languageLabels[row.language] }}</th>
+            <th scope="row" class="px-4 py-2 text-left font-medium">{{ languageLabel(row.language) }}</th>
             <td class="px-4 py-2 text-right">{{ formatNumber(row.counts.matched) }}</td>
             <td v-for="ch in channels" :key="ch" class="px-4 py-2 text-right">{{ formatNumber(row.counts[ch]) }}</td>
           </tr>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { CampaignStatus } from '@/api/types'
-import { statusLabels } from '@/lib/format'
+import { statusLabel } from '@/lib/format'
 
 defineProps<{ status: CampaignStatus }>()
 
@@ -18,6 +18,6 @@ const colors: Record<CampaignStatus, string> = {
 
 <template>
   <span class="inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium" :class="colors[status]">
-    {{ statusLabels[status] }}
+    {{ statusLabel(status) }}
   </span>
 </template>

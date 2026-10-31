@@ -20,7 +20,8 @@ cp .env.example .env   # optional; everything has mock-mode defaults
 docker compose up
 ```
 
-Open http://localhost:3000.
+Open http://localhost:3000. The `TR | EN` switch in the header changes the
+interface language (remembered in the browser).
 
 | Service        | URL                           |
 | -------------- | ----------------------------- |
@@ -296,6 +297,21 @@ approval → rate-limited, retried, idempotent delivery → live dashboard, plus
   keys.
 - **Frontend tests are unit tests and type checks;** there are no browser
   end-to-end tests.
+- **Interface language covers the UI's own text.** The `TR | EN` switch
+  translates labels, statuses, rule descriptions, dates and numbers; error
+  and validation messages written by the API stay in English.
+- **No A/B variants yet.** Design: a campaign gets up to N variants per
+  language and channel (`campaign_contents.variant`, e.g. `A`/`B`, each
+  validated like today's content, with a traffic share that sums to 100).
+  At approval each recipient is assigned with a stable hash,
+  `bucket = hash(campaign_id, user_id) mod 100`, mapped onto the shares,
+  and the variant is stored on the message (`messages.variant`) like its
+  language, so retries and re-enqueues always send the same variant and
+  the split is reproducible without storing a random seed. A holdout is
+  just a variant that is never sent. The dashboard and `/metrics` group by
+  variant; measuring conversions would join `user_events` purchases after
+  `sent_at` per variant. Hashing on `user_id` (not `messages.id`) keeps a
+  user in the same arm across channels.
 - **Claude mode has not been run against the live API.** The demo and all
   tests use the mock LLM; the Claude client is tested against a fake
   streaming server (`llm/claude_test.go`: streaming, refusal, truncation,

@@ -1,4 +1,5 @@
 import type { Condition, EventCondition, FieldCondition, GroupCondition, MatchMode, SegmentRule } from '@/api/types'
+import { type Locale, type MessageKey, translate } from './i18n'
 
 // A readable line of a segment rule; groups have children.
 export interface RuleLine {
@@ -6,15 +7,14 @@ export interface RuleLine {
   children?: RuleLine[]
 }
 
-const fieldLabels: Record<string, string> = { city: 'City', language: 'Language' }
-
-const languageNames: Record<string, string> = { en: 'English', tr: 'Turkish' }
+const fieldKeys: Record<string, MessageKey> = { city: 'rule.field.city', language: 'rule.field.language' }
+const languageKeys: Record<string, MessageKey> = { en: 'language.en', tr: 'language.tr' }
 
 // Event phrases: [did it, did not do it].
-const eventPhrases: Record<string, [string, string]> = {
-  page_view: ['Viewed a page', 'Did not view any page'],
-  cart_add: ['Added to cart', 'Did not add to cart'],
-  purchase: ['Made a purchase', 'Did not make a purchase'],
+const eventKeys: Record<string, [MessageKey, MessageKey]> = {
+  page_view: ['rule.event.page_view', 'rule.event.page_view.not'],
+  cart_add: ['rule.event.cart_add', 'rule.event.cart_add.not'],
+  purchase: ['rule.event.purchase', 'rule.event.purchase.not'],
 }
 
 function isGroup(c: Condition): c is GroupCondition {
@@ -25,47 +25,55 @@ function isEvent(c: Condition): c is EventCondition {
   return 'event' in c
 }
 
-function matchText(match: MatchMode): string {
-  return match === 'any' ? 'Any of these' : 'All of these'
-}
+// Describer renders rules in one UI language.
+class Describer {
+  constructor(private readonly locale: Locale) {}
 
-function listValues(field: string, values: string[]): string {
-  const shown = field === 'language' ? values.map((v) => languageNames[v] ?? v) : values
-  if (shown.length <= 1) return shown.join('')
-  return `${shown.slice(0, -1).join(', ')} or ${shown.at(-1)}`
-}
+  private t(key: MessageKey, params?: Record<string, string | number>) {
+    return translate(this.locale, key, params)
+  }
 
-function describeField(c: FieldCondition): string {
-  const label = fieldLabels[c.field] ?? c.field
-  const values = listValues(c.field, c.value)
-  switch (c.op) {
-    case 'eq':
-    case 'in':
-      return `${label} is ${values}`
-    case 'neq':
-    case 'not_in':
-      return `${label} is not ${values}`
+  match(match: MatchMode): string {
+    return this.t(match === 'any' ? 'rule.any' : 'rule.all')
+  }
+
+  private values(field: string, values: string[]): string {
+    const shown = field === 'language' ? values.map((v) => (languageKeys[v] ? this.t(languageKeys[v]) : v)) : values
+    if (shown.length <= 1) return shown.join('')
+    return `${shown.slice(0, -1).join(', ')} ${this.t('rule.or')} ${shown.at(-1)}`
+  }
+
+  private field(c: FieldCondition): string {
+    const field = fieldKeys[c.field] ? this.t(fieldKeys[c.field]!) : c.field
+    const values = this.values(c.field, c.value)
+    const negated = c.op === 'neq' || c.op === 'not_in'
+    return this.t(negated ? 'rule.isNot' : 'rule.is', { field, values })
+  }
+
+  private event(c: EventCondition): string {
+    const keys = eventKeys[c.event]
+    const negated = c.exists === false
+    const did = keys
+      ? this.t(keys[negated ? 1 : 0])
+      : this.t(negated ? 'rule.event.other.not' : 'rule.event.other', { event: c.event })
+    const window = c.within_days === 1 ? this.t('rule.lastDay') : this.t('rule.lastDays', { n: c.within_days ?? 0 })
+    const times = !negated && c.min_count && c.min_count > 1 ? this.t('rule.atLeast', { n: c.min_count }) : ''
+    const line = this.t('rule.eventLine', { did, times, window }).replace(/\s+/g, ' ').trim()
+    return line.charAt(0).toLocaleUpperCase(this.locale) + line.slice(1)
+  }
+
+  condition(c: Condition): RuleLine {
+    if (isGroup(c)) return { text: this.match(c.match), children: c.conditions.map((x) => this.condition(x)) }
+    if (isEvent(c)) return { text: this.event(c) }
+    return { text: this.field(c) }
   }
 }
 
-function describeEvent(c: EventCondition): string {
-  const [did, didNot] = eventPhrases[c.event] ?? [`Did ${c.event}`, `Did not do ${c.event}`]
-  const window = c.within_days === 1 ? 'in the last day' : `in the last ${c.within_days} days`
-  if (c.exists === false) return `${didNot} ${window}`
-  const times = c.min_count && c.min_count > 1 ? ` at least ${c.min_count} times` : ''
-  return `${did}${times} ${window}`
-}
-
-function describeCondition(c: Condition): RuleLine {
-  if (isGroup(c)) return { text: matchText(c.match), children: c.conditions.map(describeCondition) }
-  if (isEvent(c)) return { text: describeEvent(c) }
-  return { text: describeField(c) }
-}
-
-// describeRule turns a segment rule into readable lines. A root with one
-// condition is shown without the "All of these" wrapper.
-export function describeRule(rule: SegmentRule): RuleLine {
-  if (rule.conditions.length === 0) return { text: 'All users' }
-  if (rule.conditions.length === 1) return describeCondition(rule.conditions[0]!)
-  return { text: matchText(rule.match), children: rule.conditions.map(describeCondition) }
+// describeRule turns a segment rule into readable lines in the UI language.
+// A root with one condition is shown without the "All of these" wrapper.
+export function describeRule(rule: SegmentRule, locale: Locale = 'en'): RuleLine {
+  const d = new Describer(locale)
+  if (rule.conditions.length === 0) return { text: translate(locale, 'rule.allUsers') }
+  if (rule.conditions.length === 1) return d.condition(rule.conditions[0]!)
+  return { text: d.match(rule.match), children: rule.conditions.map((c) => d.condition(c)) }
 }

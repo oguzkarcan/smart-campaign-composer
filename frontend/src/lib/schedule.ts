@@ -1,5 +1,6 @@
 // Helpers for "Schedule for later": the browser picks a local date and time,
 // the API gets an absolute RFC 3339 time (send_at).
+import { type Locale, translate } from './i18n'
 
 // campaign.MaxScheduleAhead on the server.
 export const MAX_SCHEDULE_DAYS = 30
@@ -25,30 +26,33 @@ export function defaultSchedule(now: Date): string {
   return toLocalInput(d)
 }
 
-export type ScheduleResult = { sendAt: string; error?: undefined } | { sendAt?: undefined; error: string }
+// ScheduleError names what is wrong with a picked time; the UI translates it
+// (schedule.<error>).
+export type ScheduleError = 'pick' | 'tooSoon' | 'tooFar'
+
+export type ScheduleResult = { sendAt: string; error?: undefined } | { sendAt?: undefined; error: ScheduleError }
 
 // parseSchedule checks a datetime-local value against the same range the
 // server accepts and returns it as an ISO time.
 export function parseSchedule(value: string, now: Date): ScheduleResult {
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(value)) return { error: 'Pick a date and time.' }
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(value)) return { error: 'pick' }
   const d = new Date(value) // no offset: local time
-  if (Number.isNaN(d.getTime())) return { error: 'Pick a date and time.' }
-  if (d.getTime() < now.getTime() + MIN_LEAD_MS) return { error: 'Pick a time at least a minute from now.' }
-  if (d.getTime() > now.getTime() + MAX_SCHEDULE_DAYS * DAY_MS)
-    return { error: `Pick a time within ${MAX_SCHEDULE_DAYS} days.` }
+  if (Number.isNaN(d.getTime())) return { error: 'pick' }
+  if (d.getTime() < now.getTime() + MIN_LEAD_MS) return { error: 'tooSoon' }
+  if (d.getTime() > now.getTime() + MAX_SCHEDULE_DAYS * DAY_MS) return { error: 'tooFar' }
   return { sendAt: d.toISOString() }
 }
 
 // formatCountdown says how long until a time: "in 2 d 3 h", "in 1 h 05 min",
 // "in 4 min", "in less than a minute", or "now" once it has passed.
-export function formatCountdown(ms: number): string {
-  if (ms <= 0) return 'now'
+export function formatCountdown(ms: number, locale: Locale = 'en'): string {
+  if (ms <= 0) return translate(locale, 'time.now')
   const min = Math.floor(ms / 60_000)
-  if (min < 1) return 'in less than a minute'
+  if (min < 1) return translate(locale, 'time.underMinute')
   const d = Math.floor(min / 1440)
   const h = Math.floor((min % 1440) / 60)
   const m = min % 60
-  if (d > 0) return h ? `in ${d} d ${h} h` : `in ${d} d`
-  if (h > 0) return `in ${h} h ${pad(m)} min`
-  return `in ${m} min`
+  if (d > 0) return h ? translate(locale, 'time.daysHours', { d, h }) : translate(locale, 'time.days', { d })
+  if (h > 0) return translate(locale, 'time.hours', { h, m: pad(m) })
+  return translate(locale, 'time.minutes', { m })
 }

@@ -3,7 +3,8 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { approveCampaign, generateContent } from '@/api/client'
 import type { Campaign, Content, Language } from '@/api/types'
-import { channelLabels, formatDateTime, formatNumber, languageLabels } from '@/lib/format'
+import { channelLabel, formatDateTime, formatNumber, languageLabel } from '@/lib/format'
+import { t } from '@/lib/i18n'
 import { languageTabs } from '@/lib/languages'
 import { defaultSchedule, MAX_SCHEDULE_DAYS, parseSchedule, toLocalInput } from '@/lib/schedule'
 import ChannelEditor from './ChannelEditor.vue'
@@ -41,19 +42,19 @@ const tabs = computed(() => languageTabs(props.campaign))
 const activeLanguage = ref<Language>('tr')
 watch(
   tabs,
-  (t) => {
-    if (t.length && !t.some((tab) => tab.language === activeLanguage.value)) activeLanguage.value = t[0]!.language
+  (list) => {
+    if (list.length && !list.some((tab) => tab.language === activeLanguage.value)) activeLanguage.value = list[0]!.language
   },
   { immediate: true },
 )
 // Messages in display order: by language, then the campaign's channel order.
 const contents = computed(() => {
   const byKey = new Map((props.campaign.contents ?? []).map((c) => [`${c.language}.${c.channel}`, c]))
-  return tabs.value.flatMap((t) =>
-    props.campaign.channels.map((ch) => byKey.get(`${t.language}.${ch}`)).filter((c): c is Content => !!c),
+  return tabs.value.flatMap((tab) =>
+    props.campaign.channels.map((ch) => byKey.get(`${tab.language}.${ch}`)).filter((c): c is Content => !!c),
   )
 })
-const missingLanguages = computed(() => tabs.value.filter((t) => !t.hasContent).map((t) => t.language))
+const missingLanguages = computed(() => tabs.value.filter((tab) => !tab.hasContent).map((tab) => tab.language))
 function tabState(lang: Language): 'dirty' | 'invalid' | null {
   const states = contents.value
     .filter((c) => c.language === lang)
@@ -86,15 +87,17 @@ const canApprove = computed(
 )
 const approveHint = computed(() => {
   if (missingLanguages.value.length)
-    return `Generate the messages again to include ${missingLanguages.value.map((l) => languageLabels[l]).join(' and ')}.`
-  if (anyDirty.value) return 'Save or discard your changes in every language before approving.'
-  if (!allValid.value) return 'Fix the problems in every language before approving.'
+    return t('messages.hintMissing', {
+      languages: missingLanguages.value.map((l) => languageLabel(l)).join(` ${t('messages.and')} `),
+    })
+  if (anyDirty.value) return t('messages.hintDirty')
+  if (!allValid.value) return t('messages.hintInvalid')
   return ''
 })
 
 async function generate() {
   if (!canGenerate.value || generating.value) return
-  if ((anyDirty.value || contents.value.some((c) => c.human_edited)) && !confirm('New messages replace your edits. Continue?')) return
+  if ((anyDirty.value || contents.value.some((c) => c.human_edited)) && !confirm(t('messages.confirmRegenerate'))) return
   controller = new AbortController()
   generating.value = true
   emit('busy', true)
@@ -131,9 +134,8 @@ function cancel() {
 }
 
 // Unsaved edits would be lost by leaving the page or closing the tab.
-const LEAVE_PROMPT = 'You have unsaved message changes. Leave without saving?'
 function guardLeave() {
-  return !anyDirty.value || confirm(LEAVE_PROMPT)
+  return !anyDirty.value || confirm(t('messages.leave'))
 }
 onBeforeRouteLeave(guardLeave)
 onBeforeRouteUpdate(guardLeave)
@@ -149,14 +151,14 @@ onUnmounted(() => {
 async function approve() {
   if (!canApprove.value) return
   const a = props.campaign.audience
-  const parts = props.campaign.channels.map((ch) => `${formatNumber(a?.[ch] ?? 0)} ${channelLabels[ch]}`)
+  const parts = props.campaign.channels.map((ch) => `${formatNumber(a?.[ch] ?? 0)} ${channelLabel(ch)}`).join(' + ')
   checkedAt.value = new Date()
   const s = schedule.value
   if (s?.error) return // shown under the time picker
-  const action = s?.sendAt
-    ? `Schedule ${parts.join(' + ')} messages for ${formatDateTime(s.sendAt)}?`
-    : `Approve and send ${parts.join(' + ')} messages now?`
-  if (!confirm(`${action} The content is locked after this.`)) return
+  const question = s?.sendAt
+    ? t('messages.confirmSchedule', { parts, date: formatDateTime(s.sendAt) })
+    : t('messages.confirmSend', { parts })
+  if (!confirm(question)) return
   approving.value = true
   approveError.value = null
   try {
@@ -172,7 +174,7 @@ async function approve() {
 <template>
   <section class="space-y-4" aria-labelledby="content-heading">
     <div class="flex items-center justify-between gap-4">
-      <h2 id="content-heading" class="text-lg font-semibold">Messages</h2>
+      <h2 id="content-heading" class="text-lg font-semibold">{{ t('messages.title') }}</h2>
       <button
         v-if="canGenerate && contents.length && !generating"
         type="button"
@@ -180,94 +182,100 @@ async function approve() {
         class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
         @click="generate"
       >
-        Regenerate messages
+        {{ t('messages.regenerate') }}
       </button>
     </div>
 
-    <ErrorAlert v-if="generateError" :error="generateError" title="Claude could not write valid messages" />
+    <ErrorAlert v-if="generateError" :error="generateError" :title="t('messages.error')" />
 
-    <!-- Live generation: the model's raw output as it streams in. -->
-    <div v-if="generating" class="space-y-2 rounded-xl border border-indigo-200 bg-white p-4" aria-live="polite">
+    <!-- Live generation: progress for the marketer, the model's raw output on demand. -->
+    <div v-if="generating" class="space-y-3 rounded-xl border border-indigo-200 bg-white p-4" aria-live="polite">
       <div class="flex items-center justify-between gap-2 text-sm">
-        <span class="flex items-center gap-2 text-indigo-700">
+        <span class="flex flex-wrap items-center gap-2 text-indigo-700">
           <span class="size-2 animate-pulse rounded-full bg-indigo-500" />
-          <template v-if="attempt === 1">
-            Claude is writing the {{ streamLanguage ? languageLabels[streamLanguage] : '' }} messages…
-          </template>
-          <template v-else>
-            Fixing the {{ streamLanguage ? languageLabels[streamLanguage] : '' }} messages (attempt {{ attempt }})…
-          </template>
+          <template v-if="!streamLanguage">{{ t('messages.writingAny') }}</template>
+          <template v-else-if="attempt === 1">{{ t('messages.writing', { language: languageLabel(streamLanguage) }) }}</template>
+          <template v-else>{{ t('messages.repairing', { language: languageLabel(streamLanguage), n: attempt }) }}</template>
           <span v-if="tabs.length > 1 && streamLanguage" class="text-slate-500">
-            ({{ tabs.findIndex((t) => t.language === streamLanguage) + 1 }} of {{ tabs.length }} languages)
+            {{ t('messages.languageOf', { i: tabs.findIndex((tab) => tab.language === streamLanguage) + 1, n: tabs.length }) }}
           </span>
         </span>
-        <button type="button" class="text-slate-500 hover:text-slate-800" @click="cancel">Cancel</button>
+        <button type="button" class="text-slate-500 hover:text-slate-800" @click="cancel">{{ t('messages.cancel') }}</button>
       </div>
-      <pre class="max-h-72 overflow-auto rounded-lg bg-slate-900 p-3 font-mono text-xs whitespace-pre-wrap text-slate-100">{{ streamed || ' ' }}<span class="animate-pulse">▍</span></pre>
+      <div class="h-1.5 overflow-hidden rounded-full bg-indigo-100">
+        <div class="h-full w-1/3 animate-pulse rounded-full bg-indigo-400" />
+      </div>
+      <details class="text-xs text-slate-500">
+        <summary class="cursor-pointer">{{ t('messages.raw') }}</summary>
+        <pre class="mt-2 max-h-72 overflow-auto rounded-lg bg-slate-900 p-3 font-mono whitespace-pre-wrap text-slate-100">{{ streamed || ' ' }}<span class="animate-pulse">▍</span></pre>
+      </details>
     </div>
 
     <template v-else-if="!contents.length">
       <div v-if="canGenerate" class="rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center">
         <template v-if="reachable > 0">
-          <p class="text-slate-600">Next, let Claude write the messages for this audience.</p>
+          <p class="text-slate-600">{{ t('messages.next') }}</p>
           <button
             type="button"
             class="mt-3 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
             @click="generate"
           >
-            Generate messages
+            {{ t('messages.generate') }}
           </button>
         </template>
-        <p v-else class="text-slate-600">
-          Nobody in this audience can be reached on the chosen channels. Change the brief or the channels.
-        </p>
+        <p v-else class="text-slate-600">{{ t('messages.unreachable') }}</p>
       </div>
-      <p v-else class="text-sm text-slate-500">Messages are written once the audience is ready.</p>
+      <p v-else class="text-sm text-slate-500">{{ t('messages.afterAudience') }}</p>
     </template>
 
     <template v-if="contents.length && !generating">
-      <div v-if="tabs.length > 1" role="tablist" aria-label="Message language" class="flex flex-wrap gap-2">
+      <div v-if="tabs.length > 1" role="tablist" :aria-label="t('messages.tabs')" class="flex flex-wrap gap-2">
         <button
-          v-for="t in tabs"
-          :key="t.language"
+          v-for="tab in tabs"
+          :key="tab.language"
           type="button"
           role="tab"
-          :aria-selected="activeLanguage === t.language"
+          :aria-selected="activeLanguage === tab.language"
           class="flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium"
           :class="
-            activeLanguage === t.language
+            activeLanguage === tab.language
               ? 'border-indigo-600 bg-indigo-50 text-indigo-800'
               : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
           "
-          @click="activeLanguage = t.language"
+          @click="activeLanguage = tab.language"
         >
-          {{ languageLabels[t.language] }}
-          <span class="font-normal text-slate-500 tabular-nums">{{ formatNumber(t.recipients) }} messages</span>
-          <span v-if="!t.hasContent" class="size-2 rounded-full bg-rose-500" title="No messages yet" />
-          <span v-else-if="tabState(t.language) === 'invalid'" class="size-2 rounded-full bg-rose-500" title="Has problems" />
-          <span v-else-if="tabState(t.language) === 'dirty'" class="size-2 rounded-full bg-amber-500" title="Unsaved changes" />
+          {{ languageLabel(tab.language) }}
+          <span class="font-normal text-slate-500 tabular-nums">{{ t('messages.tabCount', { n: formatNumber(tab.recipients) }) }}</span>
+          <span v-if="!tab.hasContent" class="size-2 rounded-full bg-rose-500" :title="t('messages.noMessagesYet')" />
+          <span
+            v-else-if="tabState(tab.language) === 'invalid'"
+            class="size-2 rounded-full bg-rose-500"
+            :title="t('messages.hasProblems')"
+          />
+          <span
+            v-else-if="tabState(tab.language) === 'dirty'"
+            class="size-2 rounded-full bg-amber-500"
+            :title="t('messages.unsaved')"
+          />
         </button>
       </div>
-      <p v-if="tabs.length > 1" class="text-sm text-slate-500">
-        Each recipient gets the message in their own language.
-      </p>
+      <p v-if="tabs.length > 1" class="text-sm text-slate-500">{{ t('messages.ownLanguage') }}</p>
 
       <p
         v-if="missingLanguages.includes(activeLanguage)"
         class="rounded-xl border border-dashed border-rose-300 bg-white p-4 text-sm text-slate-600"
       >
-        This audience now includes {{ languageLabels[activeLanguage] }} readers, but there are no
-        {{ languageLabels[activeLanguage] }} messages yet. Generate the messages again to write them.
+        {{ t('messages.missing', { language: languageLabel(activeLanguage) }) }}
       </p>
 
-      <template v-for="t in tabs" :key="t.language">
+      <template v-for="tab in tabs" :key="tab.language">
         <div
-          v-show="t.language === activeLanguage"
+          v-show="tab.language === activeLanguage"
           class="grid gap-4"
           :class="{ 'lg:grid-cols-2': campaign.channels.length > 1 }"
         >
           <ChannelEditor
-            v-for="c in contents.filter((m) => m.language === t.language)"
+            v-for="c in contents.filter((m) => m.language === tab.language)"
             :key="`${c.language}.${c.channel}`"
             :campaign-id="campaign.id"
             :language="c.language"
@@ -282,34 +290,34 @@ async function approve() {
         </div>
       </template>
 
-      <ErrorAlert v-if="approveError" :error="approveError" title="Could not approve" />
+      <ErrorAlert v-if="approveError" :error="approveError" :title="t('messages.approveError')" />
 
       <div v-if="status === 'content_ready'" class="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
         <fieldset class="space-y-2" :disabled="!editable">
-          <legend class="text-sm font-medium text-slate-700">When should the messages go out?</legend>
+          <legend class="text-sm font-medium text-slate-700">{{ t('messages.when') }}</legend>
           <div class="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
             <label class="flex items-center gap-2">
               <input v-model="when" type="radio" value="now" class="accent-emerald-600" />
-              Send now
+              {{ t('messages.sendNow') }}
             </label>
             <label class="flex items-center gap-2">
               <input v-model="when" type="radio" value="later" class="accent-emerald-600" />
-              Schedule for later
+              {{ t('messages.later') }}
             </label>
             <input
               v-if="when === 'later'"
               v-model="scheduleInput"
               type="datetime-local"
-              aria-label="Send date and time"
+              :aria-label="t('messages.sendTime')"
               :min="scheduleMin"
               :max="scheduleMax"
               class="rounded-lg border border-slate-300 px-2 py-1 text-sm"
               :class="{ 'border-rose-400': schedule?.error }"
             />
           </div>
-          <p v-if="schedule?.error" class="text-sm text-rose-600">{{ schedule.error }}</p>
+          <p v-if="schedule?.error" class="text-sm text-rose-600">{{ t(`schedule.${schedule.error}`, { days: MAX_SCHEDULE_DAYS }) }}</p>
           <p v-else-if="schedule?.sendAt" class="text-sm text-slate-500">
-            Recipients and content are fixed now; sending starts {{ formatDateTime(schedule.sendAt) }} (your local time).
+            {{ t('messages.fixedNow', { date: formatDateTime(schedule.sendAt) }) }}
           </p>
         </fieldset>
         <div class="flex flex-wrap items-center gap-3">
@@ -319,15 +327,15 @@ async function approve() {
             class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
             @click="approve"
           >
-            {{ approving ? 'Approving…' : when === 'later' ? 'Approve and schedule' : 'Approve and send' }}
+            {{ approving ? t('messages.approving') : when === 'later' ? t('messages.approveSchedule') : t('messages.approveSend') }}
           </button>
           <span v-if="approveHint" class="text-sm text-slate-500">{{ approveHint }}</span>
         </div>
       </div>
       <p v-else-if="status === 'scheduled' && campaign.scheduled_at" class="text-sm text-slate-500">
-        This content was approved and is locked; it will be sent {{ formatDateTime(campaign.scheduled_at) }}.
+        {{ t('messages.lockedScheduled', { date: formatDateTime(campaign.scheduled_at) }) }}
       </p>
-      <p v-else class="text-sm text-slate-500">This content was approved and is locked.</p>
+      <p v-else class="text-sm text-slate-500">{{ t('messages.locked') }}</p>
     </template>
   </section>
 </template>
