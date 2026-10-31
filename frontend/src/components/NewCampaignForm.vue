@@ -9,6 +9,8 @@ import ErrorAlert from './ErrorAlert.vue'
 const MAX_BRIEF = 2000 // campaign.MaxBriefLength
 
 const examples = [
+  // The case study's example brief.
+  "Son 30 günde sepetine ürün ekleyip alışveriş yapmayan İstanbul'daki kullanıcılara %30 indirim hatırlatması gönder. Samimi ama kısa olsun.",
   'Win back users in İstanbul and Ankara who added to cart in the last 7 days but did not purchase.',
   'Thank English-speaking customers who purchased at least twice in the last 30 days.',
 ]
