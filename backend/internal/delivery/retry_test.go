@@ -3,6 +3,7 @@ package delivery
 import (
 	"errors"
 	"math/rand/v2"
+	"slices"
 	"testing"
 	"time"
 )
@@ -51,6 +52,48 @@ func TestDecide(t *testing.T) {
 	for _, tt := range tests {
 		if got := decide(tt.res, tt.attempt, fixed(0)); got != tt.want {
 			t.Errorf("%s: %+v, want %+v", tt.name, got, tt.want)
+		}
+	}
+}
+
+// A message that only ever gets retryable errors is tried exactly
+// MaxAttempts times with growing waits, then fails; one that gets a 429 on
+// its last attempt fails too, and a permanent error ignores Retry-After.
+func TestRetryPolicySequence(t *testing.T) {
+	down := Result{Outcome: Retry, StatusCode: 500}
+	var waits []time.Duration
+	attempt := 1
+	for ; ; attempt++ {
+		d := decide(down, attempt, fixed(0))
+		if d.Status != StatusRetry {
+			if d.Status != StatusFailed {
+				t.Fatalf("attempt %d: status %s", attempt, d.Status)
+			}
+			break
+		}
+		waits = append(waits, d.Delay)
+	}
+	want := []time.Duration{500 * time.Millisecond, time.Second, 2 * time.Second, 4 * time.Second}
+	if attempt != MaxAttempts || !slices.Equal(waits, want) {
+		t.Fatalf("failed after %d attempts with waits %v, want %d attempts and %v", attempt, waits, MaxAttempts, want)
+	}
+
+	tooMany := Result{Outcome: Retry, StatusCode: 429, RetryAfter: time.Second}
+	if d := decide(tooMany, MaxAttempts, fixed(0)); d.Status != StatusFailed {
+		t.Errorf("429 on the last attempt: %+v, want failed", d)
+	}
+	rejected := Result{Outcome: Permanent, StatusCode: 400, RetryAfter: time.Second}
+	if d := decide(rejected, 1, fixed(0)); d != (Decision{Status: StatusFailed}) {
+		t.Errorf("permanent error with Retry-After: %+v, want failed at once", d)
+	}
+}
+
+// Out-of-range attempt numbers still give a positive wait, never zero or
+// negative, so a bad counter cannot cause a hot retry loop.
+func TestBackoffNeverZero(t *testing.T) {
+	for _, attempt := range []int{-3, 0} {
+		if got := Backoff(attempt, fixed(0)); got != BaseDelay/2 {
+			t.Errorf("attempt %d: %v, want %v", attempt, got, BaseDelay/2)
 		}
 	}
 }

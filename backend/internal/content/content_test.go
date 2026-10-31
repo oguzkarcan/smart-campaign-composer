@@ -133,6 +133,47 @@ func TestLimitIsInclusive(t *testing.T) {
 	}
 }
 
+// Every limit is inclusive and counted in characters (code points), not
+// bytes: Turkish letters and emoji take several bytes but count as one.
+func TestLimitBoundaries(t *testing.T) {
+	tests := []struct {
+		name    string
+		content Content
+		path    string // "" means valid
+	}{
+		{"sms at 160 Turkish letters", Content{SMS: &SMS{Body: strings.Repeat("ş", 160)}}, ""},
+		{"sms at 161 Turkish letters", Content{SMS: &SMS{Body: strings.Repeat("ş", 161)}}, "sms.body"},
+		{"sms at 160 emoji", Content{SMS: &SMS{Body: strings.Repeat("😀", 160)}}, ""},
+		{"sms with city at the limit", Content{SMS: &SMS{Body: strings.Repeat("a", 152) + "{{city}}"}}, ""},
+		{"sms with city over the limit", Content{SMS: &SMS{Body: strings.Repeat("a", 153) + "{{city}}"}}, "sms.body"},
+		{"subject at 80", Content{Email: &Email{Subject: strings.Repeat("İ", 80), Body: "b"}}, ""},
+		{"subject at 81", Content{Email: &Email{Subject: strings.Repeat("İ", 81), Body: "b"}}, "email.subject"},
+		{"subject with name at the limit", Content{Email: &Email{Subject: "{{first_name}}" + strings.Repeat("a", 65), Body: "b"}}, ""},
+		{"subject with name over the limit", Content{Email: &Email{Subject: "{{first_name}}" + strings.Repeat("a", 66), Body: "b"}}, "email.subject"},
+		{"email body at 5000", Content{Email: &Email{Subject: "s", Body: strings.Repeat("ğ", MaxEmailBodyLength)}}, ""},
+		{"email body at 5001", Content{Email: &Email{Subject: "s", Body: strings.Repeat("ğ", MaxEmailBodyLength+1)}}, "email.body"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			channels := smsOnly
+			if tt.content.Email != nil {
+				channels = emailOnly
+			}
+			err := Validate(&tt.content, channels, testLens)
+			if tt.path == "" {
+				if err != nil {
+					t.Fatalf("want valid, got %v", err)
+				}
+				return
+			}
+			var verr ValidationError
+			if !errors.As(err, &verr) || len(verr) != 1 || verr[0].Path != tt.path || !strings.Contains(verr[0].Message, "max") {
+				t.Fatalf("want one length problem at %q, got %v", tt.path, err)
+			}
+		})
+	}
+}
+
 func TestRender(t *testing.T) {
 	vars := map[string]string{VarFirstName: "Muhammed Emin", VarCity: "İstanbul"}
 	got := Render("Merhaba {{first_name}}, {{city}} için {{first_name}}!", vars)

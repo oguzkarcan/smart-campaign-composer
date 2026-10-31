@@ -23,12 +23,19 @@ type memQueue struct {
 
 func newMemQueue(channel string, n int) *memQueue {
 	q := &memQueue{attempts: map[int64]int{}, status: map[int64]string{}}
-	for i := range n {
-		id := int64(i + 1)
+	q.add(channel, n)
+	return q
+}
+
+// add queues n more messages for channel.
+func (q *memQueue) add(channel string, n int) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	for range n {
+		id := int64(len(q.status) + 1)
 		q.due = append(q.due, Job{MessageID: id, Channel: channel, Phone: "+905321234567", Body: "Hi"})
 		q.status[id] = StatusQueued
 	}
-	return q
 }
 
 func (q *memQueue) Claim(ctx context.Context, channel string, n int, _ time.Duration) ([]Job, error) {
@@ -37,9 +44,15 @@ func (q *memQueue) Claim(ctx context.Context, channel string, n int, _ time.Dura
 	}
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	n = min(n, len(q.due))
-	jobs := slices.Clone(q.due[:n])
-	q.due = q.due[n:]
+	var jobs, rest []Job
+	for _, j := range q.due {
+		if j.Channel == channel && len(jobs) < n {
+			jobs = append(jobs, j)
+		} else {
+			rest = append(rest, j)
+		}
+	}
+	q.due = rest
 	for i := range jobs {
 		q.attempts[jobs[i].MessageID]++
 		jobs[i].Attempt = q.attempts[jobs[i].MessageID]
@@ -176,6 +189,61 @@ func TestWorkerRateLimit(t *testing.T) {
 	// One token up front, then one every 5 ms: at least (n-1)/rate.
 	if elapsed, min := time.Since(start), time.Duration(float64(n-1)/rate*float64(time.Second)); elapsed < min {
 		t.Fatalf("%d messages at %v/s took %v, want at least %v", n, rate, elapsed, min)
+	}
+}
+
+// The token bucket is an upper bound too: in any window of the run, sends
+// never exceed the burst plus what the rate refills in that window.
+func TestWorkerRateLimitUpperBound(t *testing.T) {
+	const rate, burst, n = 400.0, 5, 120
+	q := newMemQueue("sms", n)
+	var mu sync.Mutex
+	var sentAt []time.Time
+	s := &fakeSender{answer: func(Job) Result {
+		mu.Lock()
+		sentAt = append(sentAt, time.Now())
+		mu.Unlock()
+		return Result{Outcome: Sent}
+	}}
+	cfg := testConfig()
+	cfg.RatePerSec, cfg.Burst, cfg.Concurrency = rate, burst, 32
+	runUntil(t, NewWorker(cfg, q, s), func() bool { return q.count(StatusSent) == n })
+
+	mu.Lock()
+	defer mu.Unlock()
+	slices.SortFunc(sentAt, func(a, b time.Time) int { return a.Compare(b) })
+	// Windows of 50 ms; the slack of 2 covers goroutines that were handed
+	// tokens a moment apart but recorded their time together.
+	const window = 50 * time.Millisecond
+	limit := burst + int(rate*window.Seconds()) + 2
+	for i, start := range sentAt {
+		j := i
+		for j < len(sentAt) && sentAt[j].Sub(start) < window {
+			j++
+		}
+		if j-i > limit {
+			t.Fatalf("%d sends within %v from send %d, want at most %d", j-i, window, i, limit)
+		}
+	}
+}
+
+// Each channel has its own bucket: a full SMS queue does not use up the
+// email channel's rate, so both finish in about the time of one.
+func TestWorkerRateLimitIsPerChannel(t *testing.T) {
+	const rate, n = 40.0, 20
+	q := newMemQueue("sms", n)
+	q.add("email", n)
+	s := &fakeSender{answer: func(Job) Result { return Result{Outcome: Sent} }}
+	cfg := testConfig()
+	cfg.Channels = []string{"sms", "email"}
+	cfg.RatePerSec, cfg.Burst, cfg.Concurrency = rate, 1, 4
+	start := time.Now()
+	runUntil(t, NewWorker(cfg, q, s), func() bool { return q.count(StatusSent) == 2*n })
+
+	// One channel alone needs (n-1)/rate = 475 ms; a shared bucket would
+	// need (2n-1)/rate = 975 ms.
+	if elapsed := time.Since(start); elapsed > 850*time.Millisecond {
+		t.Fatalf("two channels of %d messages at %v/s each took %v: the channels share a limit", n, rate, elapsed)
 	}
 }
 

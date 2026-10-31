@@ -235,6 +235,42 @@ func TestIntegrationApproveEnqueues(t *testing.T) {
 	}
 }
 
+// An SMS-only campaign queues no email, even to users who consented to
+// email, and reaches every matched SMS-consented user exactly once, including
+// those who did not consent to email.
+func TestIntegrationApproveOnlyCampaignChannels(t *testing.T) {
+	ctx := context.Background()
+	db := testDB(t)
+	svc := NewService(NewPGStore(db), &llm.Mock{})
+	c := createForTest(t, svc, db, []string{"sms"})
+	if _, err := svc.GenerateSegment(ctx, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.GenerateContent(ctx, c.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	c, err := svc.Approve(ctx, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var sms, email, distinct, smsOnlyUsers int
+	err = db.QueryRow(ctx, `
+		SELECT count(*) FILTER (WHERE m.channel = 'sms'),
+		       count(*) FILTER (WHERE m.channel = 'email'),
+		       count(DISTINCT m.user_id),
+		       count(*) FILTER (WHERE NOT u.email_opt_in)
+		FROM messages m JOIN users u ON u.id = m.user_id WHERE m.campaign_id = $1`, c.ID).
+		Scan(&sms, &email, &distinct, &smsOnlyUsers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if email != 0 || sms != c.Audience.SMS || distinct != sms || smsOnlyUsers == 0 {
+		t.Fatalf("sms %d (want %d), email %d (want 0), distinct users %d, sms-only users %d",
+			sms, c.Audience.SMS, email, distinct, smsOnlyUsers)
+	}
+}
+
 func TestIntegrationApproveUnreachableAudience(t *testing.T) {
 	ctx := context.Background()
 	db := testDB(t)

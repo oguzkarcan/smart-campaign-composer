@@ -413,6 +413,17 @@ appended at the bottom of each section.
 - **Concurrent approvals are tested with real transactions:** five approvals
   race on one campaign; one wins and every recipient is queued once per
   channel.
+- **Injection-like DSL input is tested at both layers.** The validator is
+  fed SQL in values, list items, ops, events and `match`, case variants and
+  homoglyphs of field names, wrong JSON types and absurd nesting; the
+  compiler is checked to produce SQL with no quotes, comments or `;` and one
+  argument per placeholder for every operator. Either layer alone would
+  stop an injection; the tests keep both honest.
+- **The rate limiter is tested as a bound, not just a pace:** besides the
+  minimum duration, no 50 ms window of sends exceeds burst plus refill, and
+  two channels together take about as long as one, which a shared bucket
+  could not do. Time-based tests use margins of hundreds of milliseconds
+  and were run repeatedly to rule out flakiness.
 
 ## Mock provider
 

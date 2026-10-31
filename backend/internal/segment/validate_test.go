@@ -90,6 +90,28 @@ func TestParseRejects(t *testing.T) {
 		{"empty nested group", `{"match":"all","conditions":[{"match":"any","conditions":[]}]}`, "conditions[0].conditions", "at least one"},
 		{"too deep", `{"match":"all","conditions":[{"match":"any","conditions":[{"match":"all","conditions":[{"match":"any","conditions":[{"field":"city","op":"eq","value":"Ankara"}]}]}]}]}`, "conditions[0].conditions[0].conditions[0]", "too deeply"},
 		{"too many", `{"match":"all","conditions":[` + strings.TrimSuffix(strings.Repeat(`{"field":"city","op":"eq","value":"Ankara"},`, 21), ",") + `]}`, "", "too many conditions"},
+
+		// Injection-like input: names are matched exactly against the
+		// whitelist, values against the catalog, and types strictly.
+		{"injection in a list", `{"match":"all","conditions":[{"field":"city","op":"in","value":["Ankara","İzmir') OR 1=1 --"]}]}`, "conditions[0].value", "unknown city"},
+		{"language injection", `{"match":"all","conditions":[{"field":"language","op":"eq","value":"tr' --"}]}`, "conditions[0].value", "unknown language"},
+		{"null byte in value", `{"match":"all","conditions":[{"field":"city","op":"eq","value":"Ankara\u0000"}]}`, "conditions[0].value", "unknown city"},
+		{"field in other case", `{"match":"all","conditions":[{"field":"City","op":"eq","value":"Ankara"}]}`, "conditions[0].field", "unknown field"},
+		{"homoglyph field", `{"match":"all","conditions":[{"field":"cіty","op":"eq","value":"Ankara"}]}`, "conditions[0].field", "unknown field"},
+		{"qualified column", `{"match":"all","conditions":[{"field":"u.city","op":"eq","value":"Ankara"}]}`, "conditions[0].field", "unknown field"},
+		{"op in other case", `{"match":"all","conditions":[{"field":"city","op":"EQ","value":"Ankara"}]}`, "conditions[0].op", "unknown op"},
+		{"op injection", `{"match":"all","conditions":[{"field":"city","op":"= '' OR 1=1 --","value":"Ankara"}]}`, "conditions[0].op", "unknown op"},
+		{"event injection", `{"match":"all","conditions":[{"event":"purchase' OR 1=1 --","within_days":30,"exists":true}]}`, "conditions[0].event", "unknown event"},
+		{"match injection", `{"match":"all) OR (TRUE","conditions":[]}`, "match", "must be"},
+		{"injection in a nested group", `{"match":"all","conditions":[{"match":"any","conditions":[{"field":"city","op":"eq","value":"x'; DELETE FROM users; --"}]}]}`, "conditions[0].conditions[0].value", "unknown city"},
+		{"negative within_days", `{"match":"all","conditions":[{"event":"purchase","within_days":-5,"exists":true}]}`, "conditions[0].within_days", "between 1 and 365"},
+		{"fractional within_days", `{"match":"all","conditions":[{"event":"purchase","within_days":1.5,"exists":true}]}`, "", "invalid JSON"},
+		{"within_days as SQL", `{"match":"all","conditions":[{"event":"purchase","within_days":"30 OR 1=1","exists":true}]}`, "", "invalid JSON"},
+		{"exists as string", `{"match":"all","conditions":[{"event":"purchase","within_days":30,"exists":"true"}]}`, "", "invalid JSON"},
+		{"min_count too big", `{"match":"all","conditions":[{"event":"purchase","within_days":30,"exists":true,"min_count":1000000}]}`, "conditions[0].min_count", "between 1 and 100"},
+		{"null rule", `null`, "match", "must be"},
+		{"array instead of rule", `[{"field":"city","op":"eq","value":"Ankara"}]`, "", "invalid JSON"},
+		{"absurdly nested JSON", strings.Repeat("[", 20000), "", "invalid JSON"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

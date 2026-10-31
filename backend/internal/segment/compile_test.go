@@ -2,6 +2,7 @@ package segment
 
 import (
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -106,6 +107,42 @@ func TestWhereNeverInterpolatesInput(t *testing.T) {
 	} {
 		if where, _, err := Where(Rule{Match: MatchAll, Conditions: []Condition{c}}, compileNow); err == nil {
 			t.Errorf("%s: unvalidated name reached SQL: %s", name, where)
+		}
+	}
+}
+
+// Every validated rule compiles to SQL made only of fixed text, whitelisted
+// names and numbered placeholders: no quotes, comments or statement breaks,
+// and one argument per placeholder.
+func TestWhereHasNoLiterals(t *testing.T) {
+	rules := []string{exampleBrief, `{"match":"all","conditions":[]}`}
+	for _, cond := range []string{
+		`{"field":"city","op":"eq","value":"İstanbul"}`,
+		`{"field":"city","op":"neq","value":"Ankara"}`,
+		`{"field":"city","op":"in","value":["Ankara","İzmir","Eskişehir"]}`,
+		`{"field":"language","op":"not_in","value":["en"]}`,
+		`{"event":"page_view","within_days":1,"exists":true}`,
+		`{"event":"cart_add","within_days":365,"exists":false}`,
+		`{"event":"purchase","within_days":7,"exists":true,"min_count":100}`,
+		`{"match":"any","conditions":[{"field":"language","op":"eq","value":"tr"},{"match":"all","conditions":[{"field":"city","op":"eq","value":"Ankara"}]}]}`,
+	} {
+		rules = append(rules, `{"match":"any","conditions":[`+cond+`]}`)
+	}
+	placeholder := regexp.MustCompile(`\$(\d+)`)
+	for _, raw := range rules {
+		where, args, err := Where(mustParse(t, raw), compileNow)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.ContainsAny(where, `'";`) || strings.Contains(where, "--") || strings.Contains(where, "/*") {
+			t.Errorf("%s: compiled SQL contains literal or comment syntax: %s", raw, where)
+		}
+		seen := map[string]bool{}
+		for _, m := range placeholder.FindAllStringSubmatch(where, -1) {
+			seen[m[1]] = true
+		}
+		if len(seen) != len(args) {
+			t.Errorf("%s: %d placeholders for %d args: %s", raw, len(seen), len(args), where)
 		}
 	}
 }

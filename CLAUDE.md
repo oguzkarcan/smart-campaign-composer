@@ -107,7 +107,7 @@ segment DSL + validator + SQL compiler + consent.
 - [x] 5. Loading, error and empty states; polish.
 
 ### Day 5 – Hardening and delivery
-- [ ] 1. Fill test gaps for the critical behaviours (DSL injection-like input,
+- [x] 1. Fill test gaps for the critical behaviours (DSL injection-like input,
   consent, limits, idempotency, retries, rate limiter); `make test` green.
 - [ ] 2. README (setup, architecture, API, unfinished scope) and DECISIONS final pass.
 - [ ] 3. Fresh-clone `docker compose up` check, demo run with mock and Claude.
