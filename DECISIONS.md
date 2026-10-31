@@ -321,6 +321,25 @@ appended at the bottom of each section.
 - **`message_attempts`** records every provider call (status code, error,
   latency) for metrics and debugging.
 
+## Frontend
+
+- **Same-origin `/api` instead of CORS.** The browser only talks to the
+  frontend's origin; the Vite dev server and nginx in the Docker image both
+  forward `/api/*` to the API with the prefix stripped. The API stays free of
+  CORS configuration, and the same build runs anywhere the proxy points.
+- **nginx proxies SSE unbuffered** (`proxy_buffering off`, 1 h read timeout),
+  so streamed tokens and progress events reach the browser as they are
+  written. The API also sends `X-Accel-Buffering: no`.
+- **Content streaming uses `fetch` with a small SSE reader;** the live
+  dashboard uses `EventSource`. `EventSource` only does GET, and the content
+  endpoint is a POST whose early errors are plain JSON responses, so `fetch`
+  is needed to see the status first. The progress stream is a GET, where
+  `EventSource`'s automatic reconnect is worth having; the client closes it
+  on the `done` event so it does not reconnect to a finished campaign.
+- **Tailwind v4 via its Vite plugin,** no PostCSS or Tailwind config files.
+- **Frontend checks are part of `make test`:** `vue-tsc` type checking and
+  Vitest unit tests, with Node in Docker when it is not installed, like Go.
+
 ## Testing
 
 - **The end-to-end test checks invariants, not a lucky run.** Failure

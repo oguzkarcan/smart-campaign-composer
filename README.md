@@ -30,7 +30,8 @@ To use Claude, set `LLM_MODE=claude` and `ANTHROPIC_API_KEY` in `.env`.
 ## Commands
 
 ```sh
-make test    # backend tests (mock LLM, no API key, no running stack needed)
+make test    # backend and frontend tests (mock LLM, no API key, no running
+             # stack needed; Go and Node run in Docker if not installed)
 make test-integration  # DB tests and the end-to-end delivery test against the
                        # seeded compose Postgres (needs `make up`; pauses the
                        # compose worker while it runs)
@@ -39,6 +40,14 @@ make fmt     # go fmt
 make up      # docker compose up --build
 make down    # stop and remove volumes (fresh database next time)
 make help    # list all targets
+```
+
+Frontend development with hot reload (needs Node; the dev server proxies
+`/api` to the API on :8080, override with `API_URL`):
+
+```sh
+docker compose up -d api worker   # backend stack
+cd frontend && npm install && npm run dev   # http://localhost:3000
 ```
 
 ### What the tests prove
@@ -73,6 +82,8 @@ make help    # list all targets
                                       └────────┘  retry + idempotency key└──────────────┘
 ```
 
+- **frontend**: Vue 3 single-page app served by nginx, which also proxies
+  `/api/*` to the API (same origin, no CORS; SSE unbuffered).
 - **api**: campaign endpoints, LLM calls, SSE streams, `/health`, `/metrics`.
 - **worker**: claims due messages from Postgres, rate-limits per channel,
   retries with backoff, recovers expired leases.
@@ -131,7 +142,8 @@ backend/
     campaign/      campaign flow: brief → segment → content → edits, Postgres store
     mockprovider/  fake SMS/email provider
   migrations/      SQL schema (golang-migrate)
-frontend/          Vue 3 app (placeholder for now)
+frontend/          Vue 3 + Vite + TypeScript + Tailwind app
+  src/api/         typed API client, SSE reader
 ai-sessions/       Claude session exports
 ```
 
@@ -164,5 +176,9 @@ Done:
 - `/metrics` (Prometheus), campaign list, delivery progress and a live SSE
   progress stream for the dashboard.
 
+- Frontend scaffold: Vite + Vue 3 + TypeScript + Tailwind, nginx image with
+  the `/api` proxy, typed API client for every route including both SSE
+  streams.
+
 Not done yet:
-- Vue frontend and live dashboard.
+- Frontend screens: brief form, content editing and approval, live dashboard.
