@@ -282,4 +282,3 @@ approval → rate-limited, retried, idempotent delivery → live dashboard, plus
   tests use the mock LLM; the Claude client is tested against a fake
   streaming server (`llm/claude_test.go`: streaming, refusal, truncation,
   overload retries) but was not exercised with a real key.
-- **Remaining Day 5 step:** final session export.

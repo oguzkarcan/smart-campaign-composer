@@ -111,5 +111,5 @@ segment DSL + validator + SQL compiler + consent.
   consent, limits, idempotency, retries, rate limiter); `make test` green.
 - [x] 2. README (setup, architecture, API, unfinished scope) and DECISIONS final pass.
 - [x] 3. Fresh-clone `docker compose up` check, demo run with mock and Claude.
-- [ ] 4. Session exports into `ai-sessions/` (scrub keys and personal data).
+- [x] 4. Session exports into `ai-sessions/` (scrub keys and personal data).
 - [x] 5. Optional if time: GitHub Actions CI running `make test`.
