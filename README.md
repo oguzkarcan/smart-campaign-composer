@@ -10,61 +10,112 @@ shows delivery status live.
 
 ## Quick start
 
-Requirements: Docker with Compose. Nothing else (Go runs in Docker for tests).
+Requirements: Docker with Compose. Nothing else (Go and Node run in Docker for
+tests when they are not installed).
 
 ```sh
 cp .env.example .env   # optional; everything has mock-mode defaults
 docker compose up
 ```
 
-| Service        | URL                          |
-| -------------- | ---------------------------- |
-| Frontend       | http://localhost:3000        |
-| API            | http://localhost:8080/health |
-| Mock provider  | http://localhost:9090/stats  |
-| Postgres       | localhost:5432 (`scc`/`scc`) |
+Open http://localhost:3000.
+
+| Service        | URL                           |
+| -------------- | ----------------------------- |
+| Frontend       | http://localhost:3000         |
+| API            | http://localhost:8080/health  |
+| Metrics        | http://localhost:8080/metrics |
+| Mock provider  | http://localhost:9090/stats   |
+| Postgres       | localhost:5432 (`scc`/`scc`)  |
+
+Compose runs the migrations and seeds 5,000 fake users with 90 days of
+events before the services start. `make down` removes the volumes, so the next
+`up` starts from a fresh database.
+
+### Using Claude instead of the mock
 
 By default the app uses a deterministic **mock LLM**, so no API key is needed.
-To use Claude, set `LLM_MODE=claude` and `ANTHROPIC_API_KEY` in `.env`.
+To use Claude, set these in `.env` and restart the API:
+
+```sh
+LLM_MODE=claude
+ANTHROPIC_API_KEY=sk-ant-...        # never committed; .env is gitignored
+CLAUDE_MODEL=claude-sonnet-5-5      # default
+```
+
+## Walkthrough
+
+1. **New campaign:** write a brief, e.g. *"İstanbul'daki, son 30 günde
+   sepetine ürün ekleyip satın almayan kullanıcılara %10 indirim hatırlatması
+   gönder"*, and pick the channels (SMS, email or both). The example is one
+   click away on the form.
+2. **Audience:** the brief becomes a segment rule, shown as readable
+   conditions ("Added to cart in the last 30 days", raw JSON on demand), with
+   how many matched users consented to each channel. Regenerate it if it is
+   not what you meant.
+3. **Messages:** generate content and watch it stream in. Edit any message;
+   counters show its worst-case length after `{{first_name}}` / `{{city}}`
+   are filled in with the longest values in this audience, and problems are
+   shown inline. If Claude's answer is invalid, it is asked to repair it (up to
+   2 times) and the screen shows the repair round.
+4. **Approve:** the content is validated again against today's audience,
+   locked, and one message per consented recipient and channel is queued.
+5. **Delivery:** the dashboard follows the campaign live: counts per status
+   and channel, throughput, retries and the most common failure reasons, until
+   the campaign is `completed`. The mock provider injects 429s, 5xx errors and
+   lost responses, so retries are visible.
 
 ## Commands
 
 ```sh
-make test    # backend and frontend tests (mock LLM, no API key, no running
-             # stack needed; Go and Node run in Docker if not installed)
+make test              # backend and frontend tests (mock LLM, no API key, no
+                       # running stack needed)
 make test-integration  # DB tests and the end-to-end delivery test against the
                        # seeded compose Postgres (needs `make up`; pauses the
                        # compose worker while it runs)
-make vet     # go vet
-make fmt     # go fmt
-make up      # docker compose up --build
-make down    # stop and remove volumes (fresh database next time)
-make help    # list all targets
+make vet               # go vet
+make fmt               # go fmt
+make up                # docker compose up --build
+make down              # stop and remove volumes (fresh database next time)
+make help              # list all targets
 ```
 
 Frontend development with hot reload (needs Node; the dev server proxies
 `/api` to the API on :8080, override with `API_URL`):
 
 ```sh
-docker compose up -d api worker   # backend stack
+docker compose up -d api worker             # backend stack
 cd frontend && npm install && npm run dev   # http://localhost:3000
 ```
 
 ### What the tests prove
 
-- **Unit (`make test`):** segment DSL validation and SQL compilation
-  (injection-like input is rejected or parameterized), consent, content limits
-  on the worst case after expansion, the LLM repair loop, the HTTP API, the
-  provider client's response classes, backoff and retry decisions, the
-  worker's rate limiter, retries and graceful shutdown.
-- **End to end (`make test-integration`):** the real worker, Postgres queue
-  and HTTP client against the mock provider with its 100/s limit and injected
-  429s, 5xx and lost responses, plus one recipient rejected with a 400. It
-  checks that every message ends sent or failed, the duplicate-delivery
-  counter stays 0, every provider call is recorded, a permanent error fails at
-  once, retries stop at 5 attempts, `Retry-After` is waited out, and the
-  provider's own rate limit is never hit. Concurrent approvals queue each
-  recipient once.
+- **Unit (`make test`):**
+  - *Segment DSL:* injection-like input (SQL in values, list items, ops,
+    events, look-alike field names, wrong JSON types, absurd nesting) is
+    rejected; every valid rule compiles to SQL with no literals, only
+    placeholders; consent is applied outside the rule, so an `any` (OR) rule
+    cannot bypass it.
+  - *Content:* allowed variables only, every limit inclusive and counted in
+    characters (not bytes) on the worst case after expansion.
+  - *LLM:* validate-and-repair loop (success, repair, failure after 2
+    repairs, every attempt recorded), the Claude client against a fake server
+    (streaming, refusal, truncation, overload retries), the mock's answers.
+  - *Delivery:* provider response classes and `Retry-After`, backoff and the
+    5-attempt policy, the worker's rate limit (minimum pace, no window over
+    the limit, independent per channel), retries, graceful shutdown.
+  - *HTTP API* and the *frontend* (type check, rule rendering, content
+    validation mirror, SSE reader, progress maths).
+- **Integration (`make test-integration`):** compiled rules match a
+  hand-written reference query on the seeded data; approval queues only
+  consented recipients on the campaign's channels, exactly once, even under
+  concurrent approvals; queue claiming, leases and stale results.
+- **End to end:** the real worker, Postgres queue and HTTP client against the
+  mock provider with its 100/s limit and injected 429s, 5xx and lost
+  responses, plus one recipient rejected with a 400. Every message ends sent
+  or failed, the duplicate-delivery counter stays 0, every provider call is
+  recorded, a permanent error fails at once, retries stop at 5 attempts,
+  `Retry-After` is waited out, and the provider's own rate limit never fires.
 
 ## Architecture
 
@@ -86,16 +137,29 @@ cd frontend && npm install && npm run dev   # http://localhost:3000
   `/api/*` to the API (same origin, no CORS; SSE unbuffered).
 - **api**: campaign endpoints, LLM calls, SSE streams, `/health`, `/metrics`.
 - **worker**: claims due messages from Postgres, rate-limits per channel,
-  retries with backoff, recovers expired leases.
-- **mockprovider**: imitates an SMS/email provider with a real rate limit and
-  configurable 429s, 5xx, lost responses and latency.
+  retries with backoff, recovers expired leases, closes finished campaigns.
+- **mockprovider**: imitates an SMS/email provider with a real rate limit,
+  idempotency keys and configurable 429s, 5xx, lost responses and latency.
 - **seed / migrate**: one-shot jobs run by compose before the services start.
 
-Key rules: Claude's output is a JSON segment DSL that the backend validates and
-compiles to parameterized SQL (never executed as SQL directly); channel consent
-is enforced in the backend; channel length limits are checked on the worst case
-after variable expansion. See [DECISIONS.md](DECISIONS.md) for the reasoning
-behind every major choice.
+**Campaign lifecycle:** `draft` → `audience_ready` → `content_ready` →
+`sending` → `completed` / `failed`. Approval moves a campaign straight to
+`sending` in the same transaction that queues its messages.
+
+**How the core rules are enforced:**
+
+| Rule | Where |
+| ---- | ----- |
+| LLM output is never executed as SQL | Claude returns a JSON segment DSL (whitelisted fields, ops, catalog values); `segment` validates it and compiles it to parameterized SQL. |
+| Invalid LLM output is repaired | `llm.Generate`: errors go back to Claude, max 2 repairs, every attempt in `llm_generations`. |
+| Consent | Recipient queries are `WHERE (<rule>) AND <channel consent>`, only for the campaign's channels. |
+| SMS ≤ 160, subject ≤ 80 | `content` checks the worst case after expansion with the audience's longest values; the database checks the raw template; the worker checks the rendered message. |
+| Only content is editable | Strict request bodies; edits go through the same validator, and approval validates again. |
+| 100 msg/s per channel | A token bucket per channel in the worker; the mock provider enforces the same limit. |
+| No duplicates | `UNIQUE(campaign_id, user_id, channel)` with `ON CONFLICT DO NOTHING`; `messages.id` as the provider idempotency key. |
+| Retries | 5 attempts, jittered exponential backoff (1 s base, 60 s cap), `Retry-After` on 429, no retry on permanent errors, 30 s lease recovery. |
+
+See [DECISIONS.md](DECISIONS.md) for the reasoning behind every major choice.
 
 ## API
 
@@ -120,11 +184,34 @@ Status codes: `400` bad input, `404` unknown campaign, `409` not allowed in the
 campaign's status (e.g. after approval), `422` invalid content or model output,
 `502` the LLM could not be reached.
 
-**Live length counter:** `variable_lengths` (e.g. `{"first_name": 14, "city": 8}`)
+**Live length counter:** `variable_lengths` (e.g. `{"first_name": 15, "city": 9}`)
 is what each variable counts as in the server's worst-case check, measured on
 the campaign's reachable audience. A template's worst-case length is its length
 with each `{{variable}}` replaced by that many characters; compare it with
 `limits` (`{"sms.body": 160, "email.subject": 80, "email.body": 5000}`).
+
+Example (needs `jq`; with the mock LLM this finishes in a few seconds):
+
+```sh
+id=$(curl -s localhost:8080/campaigns \
+  -d '{"brief": "Users in Ankara who viewed a product this week", "channels": ["email"]}' | jq .id)
+curl -sN -X POST localhost:8080/campaigns/$id/content   # SSE: delta events, then done
+curl -s -X POST localhost:8080/campaigns/$id/approve
+curl -sN localhost:8080/campaigns/$id/events            # SSE until "done": true
+```
+
+## Configuration
+
+Every variable has a default, so `.env` is optional; see
+[.env.example](.env.example).
+
+| Variable | Default | Meaning |
+| -------- | ------- | ------- |
+| `LLM_MODE` | `mock` | `mock` (deterministic, no key) or `claude` |
+| `ANTHROPIC_API_KEY` | – | required when `LLM_MODE=claude` |
+| `CLAUDE_MODEL` | `claude-sonnet-5-5` | model for segment and content generation |
+| `POSTGRES_HOST_PORT` | `5432` | host port for Postgres, if 5432 is taken |
+| `MOCK_*` | see `.env.example` | mock provider rate limit, failure rates and latency |
 
 ## Repository layout
 
@@ -134,66 +221,56 @@ backend/
   internal/
     config/        environment configuration
     store/         Postgres connection
-    httpapi/       HTTP routes, SSE, error mapping
-    seed/          deterministic fake users and events
     segment/       audience rule DSL: validator, SQL compiler, consent
     content/       message content: validation, worst-case length, rendering
     llm/           LLM interface, prompts, repair loop, Claude and mock clients
-    campaign/      campaign flow: brief → segment → content → edits, Postgres store
+    campaign/      campaign flow: brief → segment → content → edit → approve
+    delivery/      provider client, retry policy, Postgres queue, worker
+    metrics/       Prometheus text exposition
+    httpapi/       HTTP routes, SSE, error mapping
+    seed/          deterministic fake users and events
     mockprovider/  fake SMS/email provider
   migrations/      SQL schema (golang-migrate)
 frontend/          Vue 3 + Vite + TypeScript + Tailwind app
   src/api/         typed API client, SSE reader
   src/lib/         segment rule → readable text, content validation mirror
+  src/components/  audience, editors, dashboard
   src/views/       pages (campaign list, new campaign, campaign)
-ai-sessions/       Claude session exports
+ai-sessions/       Claude Code session exports (paths and personal data scrubbed)
 ```
 
 ## Status
 
-Done:
-- One-command setup: Postgres, migrations, seed, api, worker, mock provider.
-- Schema with database-level backstops for the core rules.
-- Deterministic seed: 5,000 users, consent mix, 90 days of events.
-- Mock provider with rate limiting, failure injection and idempotency.
-- API `/health` with a database check.
-- Segment DSL with strict validation, SQL compiler and consent enforcement.
-- Content validation: channel limits on the worst case after variable
-  expansion, allowed variables only, rendering.
-- LLM layer: versioned prompts, validate-and-repair loop (max 2 repairs) that
-  records every attempt, streaming Claude client (official Go SDK) and a
-  deterministic mock LLM.
-- Campaign flow service: segment generation and audience counts, content
-  generation measured on the reachable audience, re-validated marketer edits,
-  every LLM attempt stored in `llm_generations`.
-- HTTP API for the campaign flow with SSE content streaming; `LLM_MODE`
-  selects the mock or Claude client.
-- Approval: content re-validated and locked, messages enqueued idempotently in
-  the same transaction (rule AND consent AND campaign channels).
-- Provider client: renders at send time, `messages.id` as idempotency key,
-  classifies responses (sent / retryable with `Retry-After` / permanent).
-- Worker: claims with `FOR UPDATE SKIP LOCKED` and a 30 s lease, 100 msg/s
-  per channel, up to 5 attempts with jittered exponential backoff and
-  `Retry-After`, lease recovery, campaign completion, graceful shutdown.
-- `/metrics` (Prometheus), campaign list, delivery progress and a live SSE
-  progress stream for the dashboard.
+Everything in the case's core scope works end to end: brief → segment →
+audience counts → streamed content with validation and repair → edits →
+approval → rate-limited, retried, idempotent delivery → live dashboard, plus
+`/health`, `/metrics`, a mock LLM and a mock provider, all from one
+`docker compose up`.
 
-- Frontend scaffold: Vite + Vue 3 + TypeScript + Tailwind, nginx image with
-  the `/api` proxy, typed API client for every route including both SSE
-  streams.
+### Unfinished scope and known gaps
 
-- Brief form and campaign page: the segment rule shown as readable
-  conditions (raw JSON on demand) with audience counts per campaign channel,
-  retry and regenerate.
-- Content screen: generation streamed live over SSE (repair rounds shown),
-  editing with inline validation and worst-case length counters that mirror
-  the server, variable insert buttons, a sample preview, approval.
-- Live delivery dashboard over SSE: overall and per-channel progress by
-  status, throughput, elapsed time, failure reasons; campaign list with live
-  progress for campaigns that are sending.
-- Frontend states and polish: loading skeletons, empty states, errors with
-  retry, a banner and clear messages when the API is unreachable, request
-  timeouts, an unsaved-edits guard, page titles, phone-width layout.
-
-Not done yet:
-- Day 5: test gap pass, final docs, fresh-clone check, CI.
+- **Consent is checked when messages are queued, not again when they are
+  sent.** A user who withdraws consent while a campaign is sending still
+  receives its message. Re-checking consent in the worker's claim query
+  would close this.
+- **SMS length is 160 characters, not 160 GSM-7 units.** Turkish letters
+  force UCS-2, where one SMS segment holds 70 characters. We follow the
+  case's rule; a real sender would count segments.
+- **One worker process.** The rate limiter is in-process; running several
+  workers would need a shared limiter (Postgres or Redis). Claiming itself
+  is already safe across processes.
+- **Metrics are aggregates read at scrape time.** Fine at this scale; with
+  millions of messages they would become counters or a summary table.
+- **No pause, cancel or scheduling** of a sending campaign, no campaign
+  deletion, no quiet hours or time zones.
+- **No authentication or multi-tenancy;** the API trusts its caller.
+- **The segment rule cannot be edited by hand,** by design: the marketer
+  edits the brief and regenerates.
+- **LLM:** no prompt caching (the prompts are below the cacheable size) and
+  no API structured outputs (our validator is the source of truth); either
+  could cut cost or repair rounds.
+- **Mock provider state is in memory:** restarting it forgets idempotency
+  keys.
+- **Frontend tests are unit tests and type checks;** there are no browser
+  end-to-end tests.
+- **Remaining Day 5 steps:** fresh-clone check, final session export, CI.

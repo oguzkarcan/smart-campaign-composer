@@ -1,7 +1,8 @@
 # Decisions
 
 Short notes on important decisions and why they were made. Newest decisions are
-appended at the bottom of each section.
+appended at the bottom of each section. Known gaps and unfinished scope are
+listed in the [README](README.md#unfinished-scope-and-known-gaps).
 
 ## Stack
 
@@ -36,7 +37,6 @@ appended at the bottom of each section.
   the full JSON is validated server-side only once complete, and the UI then
   replaces the streamed preview with the validated result. Simpler than parsing
   partial JSON in the browser.
-
 - **One small `Client` interface:** `Complete(request, onDelta)` with a system
   prompt and a list of messages. Segment and content generation are just
   different prompts, and a repair is the same call with the bad answer and the
@@ -71,9 +71,9 @@ appended at the bottom of each section.
   enough to pass even with unmeasured variable lengths, and carries a discount
   from the brief (`%30`, `30%`, `yüzde 30`) in the language's own style
   ("%30 indirim", "30% off"). Like the real prompt, it uses only facts from the
-  brief: no discount is mentioned unless the brief has one. The case's example brief gives the same rule as Claude would. A
-  separate `Scripted` client drives repair and failure paths in tests.
-
+  brief: no discount is mentioned unless the brief has one. The case's
+  example brief gives the same rule as Claude would. A separate `Scripted`
+  client drives repair and failure paths in tests.
 - **Official Anthropic Go SDK** for the Claude client, not hand-written HTTP:
   typed requests and stream events, and its built-in retries (429, 529
   overload, 5xx, connection errors, with backoff honouring `retry-after`).
@@ -184,7 +184,7 @@ appended at the bottom of each section.
   matches who consented to at least one campaign channel. Measuring over both
   channels at once is slightly conservative for a single channel, and keeps one
   set of numbers per campaign. Edits are re-measured against the audience as it
-  is at edit time; approval will measure again.
+  is at edit time, and approval measures again.
 - **Audience counts are a snapshot** (`audience_count`, `audience_sms`,
   `audience_email`) taken when the segment is generated. Event windows are
   relative to now, so the real recipient list is computed again at approval.
