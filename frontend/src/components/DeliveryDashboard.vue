@@ -4,7 +4,7 @@ import { getProgress, watchProgress } from '@/api/client'
 import type { CampaignStatus, Channel, Progress } from '@/api/types'
 import { CHANNELS } from '@/api/types'
 import { channelLabels, formatNumber } from '@/lib/format'
-import { emptyCounts, finished, formatDuration, percentDone, RateMeter, SEGMENTS } from '@/lib/progress'
+import { type CountKey, emptyCounts, finished, formatDuration, percentDone, RateMeter, SEGMENTS } from '@/lib/progress'
 import CountsBar from './CountsBar.vue'
 import ErrorAlert from './ErrorAlert.vue'
 
@@ -67,6 +67,12 @@ const channelRows = computed(() =>
     counts: progress.value?.channels[ch] ?? emptyCounts,
   })),
 )
+// On phones the table keeps the final states and totals; the overall bar
+// and legend above have the rest.
+function columnClass(key: CountKey): string {
+  return key === 'sent' || key === 'failed' ? '' : 'hidden sm:table-cell'
+}
+
 const failures = computed(() => progress.value?.failures ?? [])
 const done = computed(() => progress.value?.done ?? false)
 
@@ -144,15 +150,17 @@ const liveDot = computed(() => {
           <thead class="border-b border-slate-200 text-left text-xs tracking-wide text-slate-500 uppercase">
             <tr>
               <th class="px-4 py-2 font-medium">Channel</th>
-              <th class="w-1/3 px-4 py-2 font-medium">Progress</th>
-              <th v-for="s in SEGMENTS" :key="s.key" class="px-3 py-2 text-right font-medium">{{ s.label }}</th>
+              <th class="hidden w-1/3 px-4 py-2 font-medium sm:table-cell">Progress</th>
+              <th v-for="s in SEGMENTS" :key="s.key" class="px-3 py-2 text-right font-medium" :class="columnClass(s.key)">
+                {{ s.label }}
+              </th>
               <th class="px-4 py-2 text-right font-medium">Total</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100">
             <tr v-for="row in channelRows" :key="row.channel">
               <td class="px-4 py-3 font-medium">{{ channelLabels[row.channel] }}</td>
-              <td class="px-4 py-3">
+              <td class="hidden px-4 py-3 sm:table-cell">
                 <div class="flex items-center gap-2">
                   <CountsBar :counts="row.counts" size="sm" />
                   <span class="w-10 text-right text-xs tabular-nums text-slate-500">{{ percentDone(row.counts) }}%</span>
@@ -162,7 +170,7 @@ const liveDot = computed(() => {
                 v-for="s in SEGMENTS"
                 :key="s.key"
                 class="px-3 py-3 text-right tabular-nums"
-                :class="{ 'text-rose-600 font-medium': s.key === 'failed' && row.counts.failed > 0 }"
+                :class="[columnClass(s.key), { 'text-rose-600 font-medium': s.key === 'failed' && row.counts.failed > 0 }]"
               >
                 {{ formatNumber(row.counts[s.key]) }}
               </td>

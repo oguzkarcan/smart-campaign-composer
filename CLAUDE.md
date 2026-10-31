@@ -104,7 +104,7 @@ segment DSL + validator + SQL compiler + consent.
   validation (worst-case length counters), approve.
 - [x] 4. Live dashboard over SSE: per-channel status counts, progress, failures;
   campaign list.
-- [ ] 5. Loading, error and empty states; polish.
+- [x] 5. Loading, error and empty states; polish.
 
 ### Day 5 – Hardening and delivery
 - [ ] 1. Fill test gaps for the critical behaviours (DSL injection-like input,

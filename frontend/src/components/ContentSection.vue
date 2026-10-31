@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onUnmounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { approveCampaign, generateContent } from '@/api/client'
 import type { Campaign, Channel, Content } from '@/api/types'
 import { channelLabels, formatNumber } from '@/lib/format'
@@ -73,7 +74,22 @@ async function generate() {
 function cancel() {
   controller?.abort()
 }
-onUnmounted(cancel)
+
+// Unsaved edits would be lost by leaving the page or closing the tab.
+const LEAVE_PROMPT = 'You have unsaved message changes. Leave without saving?'
+function guardLeave() {
+  return !anyDirty.value || confirm(LEAVE_PROMPT)
+}
+onBeforeRouteLeave(guardLeave)
+onBeforeRouteUpdate(guardLeave)
+function onBeforeUnload(e: BeforeUnloadEvent) {
+  if (anyDirty.value) e.preventDefault()
+}
+onMounted(() => window.addEventListener('beforeunload', onBeforeUnload))
+onUnmounted(() => {
+  window.removeEventListener('beforeunload', onBeforeUnload)
+  cancel()
+})
 
 async function approve() {
   if (!canApprove.value) return

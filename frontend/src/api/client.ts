@@ -24,24 +24,62 @@ export class ApiError extends Error {
   }
 }
 
+export const UNREACHABLE = 'Cannot reach the API. Check that the backend is running, then try again.'
+export const TIMED_OUT = 'The API did not answer in time. Try again.'
+
+// Timeouts: reads are quick; calls that wait for the LLM (with up to two
+// repair rounds) can take much longer.
+const READ_TIMEOUT_MS = 15_000
+const WRITE_TIMEOUT_MS = 30_000
+const LLM_TIMEOUT_MS = 180_000
+
+// Gateway answers from the proxy, not the API, when the API is down.
+const gatewayStatuses = [502, 503, 504]
+
 async function errorFrom(res: Response): Promise<ApiError> {
   let body: ErrorBody = { error: `${res.status} ${res.statusText}`.trim() }
   try {
     const parsed = (await res.json()) as Partial<ErrorBody>
     if (typeof parsed.error === 'string') body = { ...body, ...parsed }
+    return new ApiError(res.status, body)
   } catch {
-    // not JSON (e.g. a proxy error page); keep the status text
+    // Not JSON: a proxy error page rather than the API.
   }
+  if (gatewayStatuses.includes(res.status)) body = { error: UNREACHABLE }
   return new ApiError(res.status, body)
 }
 
-async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
-  const res = await fetch(BASE + path, {
-    method,
-    signal,
-    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  })
+// send wraps fetch so that network failures and timeouts become ApiErrors
+// with a message for the marketer. A caller's own abort is rethrown as is.
+async function send(path: string, init: RequestInit, timeoutMs?: number): Promise<Response> {
+  const signals = [init.signal, timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined].filter(
+    (s): s is AbortSignal => !!s,
+  )
+  try {
+    return await fetch(BASE + path, { ...init, signal: signals.length ? AbortSignal.any(signals) : undefined })
+  } catch (e) {
+    if (init.signal?.aborted) throw e
+    if (e instanceof DOMException && e.name === 'TimeoutError') throw new ApiError(0, { error: TIMED_OUT })
+    throw new ApiError(0, { error: UNREACHABLE })
+  }
+}
+
+async function request<T>(
+  method: string,
+  path: string,
+  opts: { body?: unknown; signal?: AbortSignal; timeoutMs?: number } = {},
+): Promise<T> {
+  const { body, signal, timeoutMs = method === 'GET' ? READ_TIMEOUT_MS : WRITE_TIMEOUT_MS } = opts
+  const res = await send(
+    path,
+    {
+      method,
+      signal,
+      headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    },
+    timeoutMs,
+  )
   if (!res.ok) throw await errorFrom(res)
   return (await res.json()) as T
 }
@@ -56,25 +94,25 @@ export function listCampaigns(params: ListParams = {}, signal?: AbortSignal): Pr
   if (params.limit) q.set('limit', String(params.limit))
   if (params.before) q.set('before', String(params.before))
   const qs = q.toString()
-  return request('GET', `/campaigns${qs ? `?${qs}` : ''}`, undefined, signal)
+  return request('GET', `/campaigns${qs ? `?${qs}` : ''}`, { signal })
 }
 
 export function getCampaign(id: number, signal?: AbortSignal): Promise<Campaign> {
-  return request('GET', `/campaigns/${id}`, undefined, signal)
+  return request('GET', `/campaigns/${id}`, { signal })
 }
 
 // createCampaign stores the campaign and generates its segment. If generation
 // fails the campaign is still returned, as a draft with last_error set.
 export function createCampaign(brief: string, channels: Channel[]): Promise<Campaign> {
-  return request('POST', '/campaigns', { brief, channels })
+  return request('POST', '/campaigns', { body: { brief, channels }, timeoutMs: LLM_TIMEOUT_MS })
 }
 
 export function generateSegment(id: number): Promise<Campaign> {
-  return request('POST', `/campaigns/${id}/segment`)
+  return request('POST', `/campaigns/${id}/segment`, { timeoutMs: LLM_TIMEOUT_MS })
 }
 
 export function editContent(id: number, channel: Channel, edit: ContentEdit): Promise<Campaign> {
-  return request('PUT', `/campaigns/${id}/content/${channel}`, edit)
+  return request('PUT', `/campaigns/${id}/content/${channel}`, { body: edit })
 }
 
 export function approveCampaign(id: number): Promise<Campaign> {
@@ -82,7 +120,7 @@ export function approveCampaign(id: number): Promise<Campaign> {
 }
 
 export function getProgress(id: number, signal?: AbortSignal): Promise<Progress> {
-  return request('GET', `/campaigns/${id}/progress`, undefined, signal)
+  return request('GET', `/campaigns/${id}/progress`, { signal })
 }
 
 export interface ContentStreamHandlers {
@@ -96,7 +134,8 @@ export interface ContentStreamHandlers {
 // once the output is validated and saved. It rejects with an ApiError for a
 // plain error response or an error event.
 export async function generateContent(id: number, handlers: ContentStreamHandlers = {}): Promise<Campaign> {
-  const res = await fetch(`${BASE}/campaigns/${id}/content`, {
+  // No overall timeout: the stream shows progress, and the user can cancel.
+  const res = await send(`/campaigns/${id}/content`, {
     method: 'POST',
     signal: handlers.signal,
     headers: { Accept: 'text/event-stream' },
@@ -159,5 +198,5 @@ export function watchProgress(id: number, handlers: ProgressHandlers): () => voi
 }
 
 export function health(signal?: AbortSignal): Promise<{ status: string; checks: Record<string, string> }> {
-  return request('GET', '/health', undefined, signal)
+  return request('GET', '/health', { signal })
 }

@@ -376,6 +376,21 @@ appended at the bottom of each section.
 - **Routes:** `/` lists campaigns, `/new` is the brief form, and
   `/campaigns/:id` holds the whole flow (audience, messages, delivery), with
   the dashboard moved to the top once the campaign is approved.
+- **nginx resolves the API per request** (Docker DNS, `resolver
+  127.0.0.11`, `proxy_pass` with a variable) and gives up connecting after
+  5 s. Resolving once at startup kept a recreated API container's old IP,
+  and a stopped API made requests hang for nginx's 60 s default instead of
+  failing.
+- **The client turns transport failures into one clear message.** Network
+  errors and proxy error pages (502/503/504 without the API's JSON body)
+  become "Cannot reach the API…", and requests time out (15 s reads, 30 s
+  writes, 3 min for calls that wait on the LLM with repairs) so a stuck
+  request ends in an error with a retry instead of an endless spinner. The
+  content stream has no overall timeout: its progress is visible and it can
+  be cancelled. The header's health check shows a banner while the API is
+  down.
+- **Unsaved message edits are guarded** on route changes and on closing the
+  tab, since edits only reach the server on Save.
 - **Frontend checks are part of `make test`:** `vue-tsc` type checking and
   Vitest unit tests, with Node in Docker when it is not installed, like Go.
 

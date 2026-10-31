@@ -191,6 +191,9 @@ Done:
 - Live delivery dashboard over SSE: overall and per-channel progress by
   status, throughput, elapsed time, failure reasons; campaign list with live
   progress for campaigns that are sending.
+- Frontend states and polish: loading skeletons, empty states, errors with
+  retry, a banner and clear messages when the API is unreachable, request
+  timeouts, an unsaved-edits guard, page titles, phone-width layout.
 
 Not done yet:
-- Frontend polish (Day 4 step 5).
+- Day 5: test gap pass, final docs, fresh-clone check, CI.
