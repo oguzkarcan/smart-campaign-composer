@@ -49,8 +49,19 @@ func TestRenderEnforcesLimits(t *testing.T) {
 	longSubject.Subject = strings.Repeat("ş", 75) + " {{city}}" // 75 + 1 + 8 = 84 characters
 	push := smsJob
 	push.Channel = "push"
+	blankSubject := emailJob
+	blankSubject.Subject = " {{first_name}} "
+	blankSubject.FirstName = "  "
+	newlineSubject := emailJob
+	newlineSubject.Subject = "{{city}} fırsatı"
+	newlineSubject.City = "İstanbul\nBcc: x@example.com"
+	crSubject := emailJob
+	crSubject.Subject = "Merhaba\r{{first_name}}"
 
-	for name, j := range map[string]Job{"long sms": long, "no phone": noPhone, "long subject": longSubject, "unknown channel": push} {
+	for name, j := range map[string]Job{
+		"long sms": long, "no phone": noPhone, "long subject": longSubject, "unknown channel": push,
+		"blank subject": blankSubject, "newline from recipient data": newlineSubject, "carriage return": crSubject,
+	} {
 		if _, err := Render(j); err == nil {
 			t.Errorf("%s: no error", name)
 		}

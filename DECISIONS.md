@@ -270,8 +270,10 @@ appended at the bottom of each section.
   `message_attempts` row.
 - **Rendered messages are checked before sending.** Approval validated the
   worst case, but a recipient's data can change afterwards; a rendered message
-  over a limit (or a recipient without an address) fails permanently without
-  a provider call, rather than being cut off or bounced.
+  over a limit, an email subject that renders blank or with a line break
+  (header injection through recipient data), or a recipient without an
+  address fails permanently without a provider call, rather than being cut
+  off or bounced.
 - **A 10 s timeout per provider call.** Above the mock's 3 s slow responses;
   a timed-out call is retried with the same key, so a slow accept is replayed,
   not duplicated.

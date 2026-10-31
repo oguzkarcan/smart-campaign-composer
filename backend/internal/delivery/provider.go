@@ -108,6 +108,16 @@ func Render(j Job) (SendRequest, error) {
 	if strings.TrimSpace(req.Body) == "" {
 		return SendRequest{}, errors.New("rendered body is empty")
 	}
+	if j.Channel == content.ChannelEmail {
+		if strings.TrimSpace(req.Subject) == "" {
+			return SendRequest{}, errors.New("rendered subject is empty")
+		}
+		// A line break in a subject could inject mail headers; recipient
+		// data filled in after validation must not introduce one.
+		if strings.ContainsAny(req.Subject, "\r\n") {
+			return SendRequest{}, errors.New("rendered subject contains a line break")
+		}
+	}
 	for path, s := range limits {
 		if n := utf8.RuneCountInString(s); n > content.Limits[path] {
 			return SendRequest{}, fmt.Errorf("rendered %s is %d characters, max %d", path, n, content.Limits[path])
