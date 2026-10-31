@@ -337,6 +337,17 @@ appended at the bottom of each section.
   `EventSource`'s automatic reconnect is worth having; the client closes it
   on the `done` event so it does not reconnect to a finished campaign.
 - **Tailwind v4 via its Vite plugin,** no PostCSS or Tailwind config files.
+- **The segment rule is shown as readable sentences** ("Added to cart at
+  least 2 times in the last 7 days"), built by a pure, unit-tested function
+  from the same DSL the backend validates, so the marketer sees exactly what
+  will be queried, not a model's paraphrase. The raw JSON is one click away.
+  The rule is read-only, as required; changing it means editing the brief or
+  regenerating.
+- **Audience counts show only the campaign's channels,** each with the
+  consented count, and a zero count is flagged, since content generation is
+  refused when nobody can be reached.
+- **Regenerating the audience asks for confirmation when content exists,**
+  because the backend discards content written for the previous audience.
 - **Frontend checks are part of `make test`:** `vue-tsc` type checking and
   Vitest unit tests, with Node in Docker when it is not installed, like Go.
 

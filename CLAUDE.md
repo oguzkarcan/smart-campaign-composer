@@ -99,7 +99,7 @@ segment DSL + validator + SQL compiler + consent.
 ### Day 4 – Vue frontend
 - [x] 1. Scaffold Vite + Vue 3 + TS + Tailwind, Dockerfile, compose service on
   :3000, typed API client, dev proxy to the API.
-- [ ] 2. Brief form → segment rule (readable) + audience counts per channel.
+- [x] 2. Brief form → segment rule (readable) + audience counts per channel.
 - [ ] 3. Content view: streamed generation over SSE, edit with inline
   validation (worst-case length counters), approve.
 - [ ] 4. Live dashboard over SSE: per-channel status counts, progress, failures;

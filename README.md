@@ -144,6 +144,8 @@ backend/
   migrations/      SQL schema (golang-migrate)
 frontend/          Vue 3 + Vite + TypeScript + Tailwind app
   src/api/         typed API client, SSE reader
+  src/lib/         segment rule → readable text, formatting
+  src/views/       pages (new campaign, campaign)
 ai-sessions/       Claude session exports
 ```
 
@@ -180,5 +182,9 @@ Done:
   the `/api` proxy, typed API client for every route including both SSE
   streams.
 
+- Brief form and campaign page: the segment rule shown as readable
+  conditions (raw JSON on demand) with audience counts per campaign channel,
+  retry and regenerate.
+
 Not done yet:
-- Frontend screens: brief form, content editing and approval, live dashboard.
+- Frontend screens: content editing and approval, live dashboard.
