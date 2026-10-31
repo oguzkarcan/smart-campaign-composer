@@ -315,6 +315,44 @@ func TestApprove(t *testing.T) {
 	}
 }
 
+func TestApproveScheduled(t *testing.T) {
+	h, store := newTestAPI(&llm.Mock{})
+	create(t, h, `["sms"]`)
+	do(t, h, "POST", "/campaigns/1/content", "")
+
+	for body, status := range map[string]int{
+		`{"send_at": "` + time.Now().Add(-time.Hour).Format(time.RFC3339) + `"}`: http.StatusBadRequest, // past
+		`{"send_at": "tomorrow"}`: http.StatusBadRequest,
+		`{"when": "now"}`:         http.StatusBadRequest, // unknown field
+		`{"send_at": null} {}`:    http.StatusBadRequest, // trailing data
+	} {
+		if w := do(t, h, "POST", "/campaigns/1/approve", body); w.Code != status || decodeBody[errorResponse](t, w).Error == "" {
+			t.Errorf("%s: %d %s, want %d", body, w.Code, w.Body, status)
+		}
+	}
+	if store.Queued[1] != 0 {
+		t.Fatal("a refused approval queued messages")
+	}
+
+	sendAt := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
+	w := do(t, h, "POST", "/campaigns/1/approve", `{"send_at": "`+sendAt.Format(time.RFC3339)+`"}`)
+	c := decodeBody[campaign.Campaign](t, w)
+	if w.Code != http.StatusOK || c.Status != campaign.StatusScheduled || c.ScheduledAt == nil || !c.ScheduledAt.Equal(sendAt) {
+		t.Fatalf("%d %s", w.Code, w.Body)
+	}
+}
+
+// send_at is optional: null means now, like no body at all.
+func TestApproveSendAtNull(t *testing.T) {
+	h, _ := newTestAPI(&llm.Mock{})
+	create(t, h, `["sms"]`)
+	do(t, h, "POST", "/campaigns/1/content", "")
+	w := do(t, h, "POST", "/campaigns/1/approve", `{"send_at": null}`)
+	if c := decodeBody[campaign.Campaign](t, w); w.Code != http.StatusOK || c.Status != campaign.StatusSending || c.ScheduledAt != nil {
+		t.Fatalf("%d %s", w.Code, w.Body)
+	}
+}
+
 func TestApproveRevalidates(t *testing.T) {
 	h, store := newTestAPI(&llm.Mock{})
 	create(t, h, `["sms"]`)

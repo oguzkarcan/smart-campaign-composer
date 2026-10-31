@@ -144,7 +144,7 @@ func (s *MemStore) SetError(_ context.Context, id int64, msg string) error {
 	return nil
 }
 
-func (s *MemStore) Approve(_ context.Context, id int64, versions map[string]int, now time.Time) error {
+func (s *MemStore) Approve(_ context.Context, id int64, versions map[string]int, now time.Time, sendAt *time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	c, err := s.guard(id, campaign.StatusContentReady)
@@ -162,7 +162,10 @@ func (s *MemStore) Approve(_ context.Context, id int64, versions map[string]int,
 		return fmt.Errorf("%w: nobody can be reached", campaign.ErrConflict)
 	}
 	s.Queued[id] = c.Reachable()
-	c.Status, c.ApprovedAt, c.LastError = campaign.StatusSending, &now, ""
+	c.Status, c.ApprovedAt, c.ScheduledAt, c.LastError = campaign.StatusSending, &now, sendAt, ""
+	if sendAt != nil {
+		c.Status = campaign.StatusScheduled
+	}
 	return nil
 }
 
@@ -205,7 +208,7 @@ func (s *MemStore) List(_ context.Context, limit int, before int64) ([]campaign.
 			m.Add("failed", counts.Failed)
 		}
 		out = append(out, campaign.Summary{ID: id, Brief: c.Brief, Status: c.Status, Channels: c.Channels,
-			Messages: m, LastError: c.LastError, ApprovedAt: c.ApprovedAt})
+			Messages: m, LastError: c.LastError, ApprovedAt: c.ApprovedAt, ScheduledAt: c.ScheduledAt})
 	}
 	return out, nil
 }

@@ -9,6 +9,7 @@ const colors: Record<CampaignStatus, string> = {
   audience_ready: 'bg-sky-100 text-sky-800',
   content_ready: 'bg-indigo-100 text-indigo-800',
   approved: 'bg-violet-100 text-violet-800',
+  scheduled: 'bg-cyan-100 text-cyan-800',
   sending: 'bg-amber-100 text-amber-800',
   completed: 'bg-emerald-100 text-emerald-800',
   failed: 'bg-rose-100 text-rose-800',

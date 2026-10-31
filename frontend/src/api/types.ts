@@ -9,6 +9,7 @@ export type CampaignStatus =
   | 'audience_ready'
   | 'content_ready'
   | 'approved'
+  | 'scheduled'
   | 'sending'
   | 'completed'
   | 'failed'
@@ -66,6 +67,8 @@ export interface Campaign {
   contents: Content[] | null
   last_error?: string
   approved_at?: string
+  // When a scheduled campaign starts sending.
+  scheduled_at?: string
   created_at: string
   updated_at: string
   // Characters each variable counts as in the worst-case length check, and
@@ -105,6 +108,7 @@ export interface CampaignSummary {
   messages: Counts
   last_error?: string
   approved_at?: string
+  scheduled_at?: string
   created_at: string
   updated_at: string
 }

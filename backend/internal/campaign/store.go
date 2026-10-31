@@ -46,10 +46,10 @@ func (s *PGStore) Get(ctx context.Context, id int64) (Campaign, error) {
 	)
 	err := s.db.QueryRow(ctx, `
 		SELECT id, brief, status, channels, segment_rule, audience_count, audience_sms, audience_email,
-		       last_error, approved_at, created_at, updated_at
+		       last_error, approved_at, scheduled_at, created_at, updated_at
 		FROM campaigns WHERE id = $1`, id).Scan(
 		&c.ID, &c.Brief, &c.Status, &c.Channels, &rule, &matched, &sms, &email,
-		&lastError, &c.ApprovedAt, &c.CreatedAt, &c.UpdatedAt)
+		&lastError, &c.ApprovedAt, &c.ScheduledAt, &c.CreatedAt, &c.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Campaign{}, ErrNotFound
 	}
@@ -192,8 +192,9 @@ func (s *PGStore) SetError(ctx context.Context, id int64, msg string) error {
 // Approve enqueues messages and starts sending in one transaction, so a
 // campaign is never "sending" without its messages, nor are messages queued
 // for content that could still change. The campaign row is locked first,
-// which serializes approval with edits and with a second approval.
-func (s *PGStore) Approve(ctx context.Context, id int64, versions map[string]int, now time.Time) error {
+// which serializes approval with edits and with a second approval. A
+// scheduled campaign gets the same messages, due at sendAt instead of now.
+func (s *PGStore) Approve(ctx context.Context, id int64, versions map[string]int, now time.Time, sendAt *time.Time) error {
 	return pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
 		var (
 			status   string
@@ -233,7 +234,7 @@ func (s *PGStore) Approve(ctx context.Context, id int64, versions map[string]int
 		}
 		queued := 0
 		for _, channel := range channels {
-			n, err := enqueue(ctx, tx, id, r, channel, now)
+			n, err := enqueue(ctx, tx, id, r, channel, now, sendAt)
 			if err != nil {
 				return err
 			}
@@ -244,9 +245,13 @@ func (s *PGStore) Approve(ctx context.Context, id int64, versions map[string]int
 				ErrConflict, strings.Join(channels, " or "))
 		}
 
+		status = StatusSending
+		if sendAt != nil {
+			status = StatusScheduled
+		}
 		_, err = tx.Exec(ctx, `
-			UPDATE campaigns SET status = 'sending', approved_at = $2, last_error = NULL, updated_at = now()
-			WHERE id = $1`, id, now)
+			UPDATE campaigns SET status = $2, approved_at = $3, scheduled_at = $4, last_error = NULL, updated_at = now()
+			WHERE id = $1`, id, status, now, sendAt)
 		if err != nil {
 			return fmt.Errorf("approve campaign: %w", err)
 		}
@@ -256,18 +261,19 @@ func (s *PGStore) Approve(ctx context.Context, id int64, versions map[string]int
 
 // enqueue inserts one queued message per recipient of channel: users the rule
 // matches who consented to it (segment.RecipientsSQL). ON CONFLICT DO NOTHING
-// makes it idempotent against UNIQUE(campaign_id, user_id, channel).
-func enqueue(ctx context.Context, tx pgx.Tx, id int64, r segment.Rule, channel string, now time.Time) (int, error) {
+// makes it idempotent against UNIQUE(campaign_id, user_id, channel). The
+// messages are due at sendAt, or now (the database clock) if it is nil.
+func enqueue(ctx context.Context, tx pgx.Tx, id int64, r segment.Rule, channel string, now time.Time, sendAt *time.Time) (int, error) {
 	recipients, args, err := segment.RecipientsSQL(r, channel, now)
 	if err != nil {
 		return 0, err
 	}
 	n := len(args)
 	sql := fmt.Sprintf(`
-		INSERT INTO messages (campaign_id, user_id, channel)
-		SELECT $%d::bigint, r.id, $%d::text FROM (%s) r
-		ON CONFLICT (campaign_id, user_id, channel) DO NOTHING`, n+1, n+2, recipients)
-	tag, err := tx.Exec(ctx, sql, append(args, id, channel)...)
+		INSERT INTO messages (campaign_id, user_id, channel, next_attempt_at)
+		SELECT $%d::bigint, r.id, $%d::text, coalesce($%d::timestamptz, now()) FROM (%s) r
+		ON CONFLICT (campaign_id, user_id, channel) DO NOTHING`, n+1, n+2, n+3, recipients)
+	tag, err := tx.Exec(ctx, sql, append(args, id, channel, sendAt)...)
 	if err != nil {
 		return 0, fmt.Errorf("enqueue %s messages: %w", channel, err)
 	}
@@ -324,7 +330,8 @@ func (s *PGStore) Progress(ctx context.Context, id int64) (Progress, error) {
 
 func (s *PGStore) List(ctx context.Context, limit int, before int64) ([]Summary, error) {
 	rows, err := s.db.Query(ctx, `
-		SELECT c.id, c.brief, c.status, c.channels, coalesce(c.last_error, ''), c.approved_at, c.created_at, c.updated_at,
+		SELECT c.id, c.brief, c.status, c.channels, coalesce(c.last_error, ''), c.approved_at, c.scheduled_at,
+		       c.created_at, c.updated_at,
 		       coalesce(m.total, 0), coalesce(m.queued, 0), coalesce(m.processing, 0),
 		       coalesce(m.retry, 0), coalesce(m.sent, 0), coalesce(m.failed, 0)
 		FROM campaigns c
@@ -346,7 +353,8 @@ func (s *PGStore) List(ctx context.Context, limit int, before int64) ([]Summary,
 	list, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (Summary, error) {
 		var c Summary
 		m := &c.Messages
-		err := row.Scan(&c.ID, &c.Brief, &c.Status, &c.Channels, &c.LastError, &c.ApprovedAt, &c.CreatedAt, &c.UpdatedAt,
+		err := row.Scan(&c.ID, &c.Brief, &c.Status, &c.Channels, &c.LastError, &c.ApprovedAt, &c.ScheduledAt,
+			&c.CreatedAt, &c.UpdatedAt,
 			&m.Total, &m.Queued, &m.Processing, &m.Retry, &m.Sent, &m.Failed)
 		return c, err
 	})

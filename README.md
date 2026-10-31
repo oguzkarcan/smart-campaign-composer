@@ -60,8 +60,11 @@ CLAUDE_MODEL=claude-sonnet-5-5      # default
    are filled in with the longest values in this audience, and problems are
    shown inline. If Claude's answer is invalid, it is asked to repair it (up to
    2 times) and the screen shows the repair round.
-4. **Approve:** the content is validated again against today's audience,
-   locked, and one message per consented recipient and channel is queued.
+4. **Approve:** choose *Send now* or *Schedule for later* (up to 30 days
+   ahead). The content is validated again against today's audience, locked,
+   and one message per consented recipient and channel is queued, due now or
+   at the scheduled time; a scheduled campaign waits as `scheduled` with a
+   countdown and starts sending on its own.
 5. **Delivery:** the dashboard follows the campaign live: counts per status
    and channel, throughput, retries and the most common failure reasons, until
    the campaign is `completed`. The mock provider injects 429s, 5xx errors and
@@ -114,7 +117,9 @@ cd frontend && npm install && npm run dev   # http://localhost:3000
 - **Integration (`make test-integration`):** compiled rules match a
   hand-written reference query on the seeded data; approval queues only
   consented recipients on the campaign's channels, exactly once, even under
-  concurrent approvals; queue claiming, leases and stale results.
+  concurrent approvals; queue claiming, leases and stale results; a
+  scheduled campaign is not claimed, started or closed before its time, and
+  starts sending once due.
 - **End to end:** the real worker, Postgres queue and HTTP client against the
   mock provider with its 100/s limit and injected 429s, 5xx and lost
   responses, plus one recipient rejected with a 400. Every message ends sent
@@ -148,8 +153,10 @@ cd frontend && npm install && npm run dev   # http://localhost:3000
 - **seed / migrate**: one-shot jobs run by compose before the services start.
 
 **Campaign lifecycle:** `draft` → `audience_ready` → `content_ready` →
-`sending` → `completed` / `failed`. Approval moves a campaign straight to
-`sending` in the same transaction that queues its messages.
+(`scheduled` →) `sending` → `completed` / `failed`. Approval moves a campaign
+to `sending`, or to `scheduled` with a `send_at`, in the same transaction that
+queues its messages; the worker moves a scheduled campaign to `sending` when
+its time comes.
 
 **How the core rules are enforced:**
 
@@ -178,7 +185,7 @@ All bodies are JSON. Errors are `{"error": "...", "problems": [{"path", "message
 | `POST /campaigns/{id}/segment`         | Regenerates the segment (discards content). |
 | `POST /campaigns/{id}/content`         | Generates content, streamed as SSE: `delta` `{"attempt", "text"}`, then `done` (campaign) or `error`. A higher `attempt` means a repair round started. Errors before streaming starts are plain JSON. |
 | `PUT /campaigns/{id}/content/{channel}`| `{"subject", "body"}` → marketer edit, validated like generated content (`422` with `problems`). |
-| `POST /campaigns/{id}/approve`         | No body. Re-validates the content against today's audience (`422` if it no longer fits), locks it, queues one message per consented recipient and channel, status → `sending`. `409` if not `content_ready`, edited meanwhile, or nobody is reachable. |
+| `POST /campaigns/{id}/approve`         | Optional body `{"send_at": "<RFC 3339>"}`. Re-validates the content against today's audience (`422` if it no longer fits), locks it, queues one message per consented recipient and channel, status → `sending`, or `scheduled` until `send_at` (`scheduled_at` on the campaign). `400` if `send_at` is not in the future or more than 30 days ahead; `409` if not `content_ready`, edited meanwhile, or nobody is reachable. |
 | `GET /campaigns`                       | Campaigns newest first with message counts. `?limit=` (1–200, default 50), `?before=<id>` for the next page. |
 | `GET /campaigns/{id}/progress`         | Delivery progress: message counts by status (`totals` and per channel), top failure reasons, `done`. |
 | `GET /campaigns/{id}/events`           | SSE for the live dashboard: a `progress` event now and on every change; ends after one with `"done": true` (close the `EventSource` then). |
@@ -201,7 +208,7 @@ Example (needs `jq`; with the mock LLM this finishes in a few seconds):
 id=$(curl -s localhost:8080/campaigns \
   -d '{"brief": "Users in Ankara who viewed a product this week", "channels": ["email"]}' | jq .id)
 curl -sN -X POST localhost:8080/campaigns/$id/content   # SSE: delta events, then done
-curl -s -X POST localhost:8080/campaigns/$id/approve
+curl -s -X POST localhost:8080/campaigns/$id/approve   # or -d '{"send_at": "2026-11-02T09:00:00Z"}'
 curl -sN localhost:8080/campaigns/$id/events            # SSE until "done": true
 ```
 
@@ -266,8 +273,10 @@ approval → rate-limited, retried, idempotent delivery → live dashboard, plus
   is already safe across processes.
 - **Metrics are aggregates read at scrape time.** Fine at this scale; with
   millions of messages they would become counters or a summary table.
-- **No pause, cancel or scheduling** of a sending campaign, no campaign
-  deletion, no quiet hours or time zones.
+- **No pause or cancel** of a scheduled or sending campaign, no
+  rescheduling, no campaign deletion, no quiet hours or per-recipient time
+  zones. A scheduled campaign's recipients are fixed at approval, not at its
+  send time.
 - **No authentication or multi-tenancy;** the API trusts its caller.
 - **The segment rule cannot be edited by hand,** by design: the marketer
   edits the brief and regenerates.

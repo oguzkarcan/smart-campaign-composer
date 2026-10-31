@@ -41,6 +41,12 @@ func testDB(t *testing.T) *pgxpool.Pool {
 // campaign, so the test is skipped if others are waiting.
 func approvedCampaign(t *testing.T, db *pgxpool.Pool, channels ...string) (campaign.Campaign, int) {
 	t.Helper()
+	return scheduledCampaign(t, db, nil, channels...)
+}
+
+// scheduledCampaign is approvedCampaign with an optional send time.
+func scheduledCampaign(t *testing.T, db *pgxpool.Pool, sendAt *time.Time, channels ...string) (campaign.Campaign, int) {
+	t.Helper()
 	ctx := context.Background()
 	var others int
 	if err := db.QueryRow(ctx, "SELECT count(*) FROM messages WHERE status IN ('queued', 'retry', 'processing')").Scan(&others); err != nil {
@@ -65,7 +71,7 @@ func approvedCampaign(t *testing.T, db *pgxpool.Pool, channels ...string) (campa
 	if _, err := svc.GenerateContent(ctx, c.ID, nil); err != nil {
 		t.Fatal(err)
 	}
-	if c, err = svc.Approve(ctx, c.ID); err != nil {
+	if c, err = svc.Approve(ctx, c.ID, sendAt); err != nil {
 		t.Fatal(err)
 	}
 	var n int
@@ -237,5 +243,61 @@ func TestIntegrationCampaignWithNothingSentFails(t *testing.T) {
 	done, err := NewPGQueue(db).FinishCampaigns(ctx)
 	if err != nil || !slices.Contains(done, CampaignDone{ID: c.ID, Status: "failed"}) {
 		t.Fatalf("done = %v, err %v", done, err)
+	}
+}
+
+// A scheduled campaign sends nothing and does not close before its time; once
+// due, the worker's housekeeping starts it and its messages are claimed.
+func TestIntegrationScheduledCampaign(t *testing.T) {
+	ctx := context.Background()
+	db := testDB(t)
+	q := NewPGQueue(db)
+	sendAt := time.Now().Add(time.Hour).Truncate(time.Microsecond)
+	c, total := scheduledCampaign(t, db, &sendAt, "sms")
+	if c.Status != campaign.StatusScheduled || c.ScheduledAt == nil || !c.ScheduledAt.Equal(sendAt) || c.ApprovedAt == nil {
+		t.Fatalf("status %s, scheduled_at %v, approved_at %v", c.Status, c.ScheduledAt, c.ApprovedAt)
+	}
+	var early int
+	if err := db.QueryRow(ctx, "SELECT count(*) FROM messages WHERE campaign_id = $1 AND next_attempt_at <> $2",
+		c.ID, sendAt).Scan(&early); err != nil || early != 0 {
+		t.Fatalf("%d of %d messages not due at send_at, err %v", early, total, err)
+	}
+
+	// Before its time: nothing is claimed, started or closed.
+	if jobs, err := q.Claim(ctx, "sms", 50, 30*time.Second); err != nil || len(jobs) != 0 {
+		t.Fatalf("claimed %d messages before send_at, err %v", len(jobs), err)
+	}
+	if started, err := q.StartScheduled(ctx); err != nil || slices.Contains(started, c.ID) {
+		t.Fatalf("started early: %v, err %v", started, err)
+	}
+	if done, err := q.FinishCampaigns(ctx); err != nil || slices.ContainsFunc(done, func(d CampaignDone) bool { return d.ID == c.ID }) {
+		t.Fatalf("finished early: %v, err %v", done, err)
+	}
+
+	// The time comes.
+	if _, err := db.Exec(ctx, "UPDATE campaigns SET scheduled_at = now() - interval '1 second' WHERE id = $1", c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, "UPDATE messages SET next_attempt_at = now() - interval '1 second' WHERE campaign_id = $1", c.ID); err != nil {
+		t.Fatal(err)
+	}
+	started, err := q.StartScheduled(ctx)
+	if err != nil || !slices.Contains(started, c.ID) {
+		t.Fatalf("started = %v, err %v", started, err)
+	}
+	var status string
+	if err := db.QueryRow(ctx, "SELECT status FROM campaigns WHERE id = $1", c.ID).Scan(&status); err != nil || status != campaign.StatusSending {
+		t.Fatalf("status %s, err %v", status, err)
+	}
+	// Sending with queued messages is not done.
+	if done, err := q.FinishCampaigns(ctx); err != nil || slices.ContainsFunc(done, func(d CampaignDone) bool { return d.ID == c.ID }) {
+		t.Fatalf("finished with queued messages: %v, err %v", done, err)
+	}
+	jobs, err := q.Claim(ctx, "sms", total, 30*time.Second)
+	if err != nil || len(jobs) != total {
+		t.Fatalf("claimed %d of %d, err %v", len(jobs), total, err)
+	}
+	if err := q.Release(ctx, jobs); err != nil {
+		t.Fatal(err)
 	}
 }

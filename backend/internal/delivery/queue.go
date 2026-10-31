@@ -147,6 +147,26 @@ func (q *PGQueue) RecoverLeases(ctx context.Context) (int, error) {
 	return int(tag.RowsAffected()), nil
 }
 
+// StartScheduled moves scheduled campaigns whose time has come to sending
+// and returns their ids. Their messages were queued at approval, due at
+// scheduled_at, so the channel loops pick them up on their own; the status
+// change lets FinishCampaigns close the campaign once they are done, and
+// never earlier.
+func (q *PGQueue) StartScheduled(ctx context.Context) ([]int64, error) {
+	rows, err := q.db.Query(ctx, `
+		UPDATE campaigns SET status = 'sending', updated_at = now()
+		WHERE status = 'scheduled' AND scheduled_at <= now()
+		RETURNING id`)
+	if err != nil {
+		return nil, fmt.Errorf("start scheduled campaigns: %w", err)
+	}
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[int64])
+	if err != nil {
+		return nil, fmt.Errorf("start scheduled campaigns: %w", err)
+	}
+	return ids, nil
+}
+
 // CampaignDone is a campaign that finished sending.
 type CampaignDone struct {
 	ID     int64

@@ -3,12 +3,19 @@ import { computed, onUnmounted, ref, watch } from 'vue'
 import { getProgress, watchProgress } from '@/api/client'
 import type { CampaignStatus, Channel, Progress } from '@/api/types'
 import { CHANNELS } from '@/api/types'
-import { channelLabels, formatNumber } from '@/lib/format'
+import { channelLabels, formatDateTime, formatNumber } from '@/lib/format'
 import { type CountKey, emptyCounts, finished, formatDuration, percentDone, RateMeter, SEGMENTS } from '@/lib/progress'
+import { formatCountdown } from '@/lib/schedule'
 import CountsBar from './CountsBar.vue'
 import ErrorAlert from './ErrorAlert.vue'
 
-const props = defineProps<{ campaignId: number; channels: Channel[]; approvedAt?: string; updatedAt: string }>()
+const props = defineProps<{
+  campaignId: number
+  channels: Channel[]
+  approvedAt?: string
+  scheduledAt?: string
+  updatedAt: string
+}>()
 const emit = defineEmits<{ status: [status: CampaignStatus] }>()
 
 const progress = ref<Progress | null>(null)
@@ -76,16 +83,23 @@ function columnClass(key: CountKey): string {
 const failures = computed(() => progress.value?.failures ?? [])
 const done = computed(() => progress.value?.done ?? false)
 
-// Elapsed since approval, frozen when the stream reports done. A campaign
-// that was already finished when opened ended at its last update.
+// A scheduled campaign waits with all its messages queued until its time.
+const scheduled = computed(() => progress.value?.status === 'scheduled')
+const countdown = computed(() => (props.scheduledAt ? formatCountdown(Date.parse(props.scheduledAt) - now.value) : ''))
+
+// Elapsed since sending started (approval, or the scheduled time), frozen
+// when the stream reports done. A campaign that was already finished when
+// opened ended at its last update.
 const elapsed = computed(() => {
-  if (!props.approvedAt) return null
+  const start = props.scheduledAt ?? props.approvedAt
+  if (!start || scheduled.value) return null
   const end = finishedAt.value ?? (done.value ? Date.parse(props.updatedAt) : now.value)
-  return formatDuration(end - Date.parse(props.approvedAt))
+  return formatDuration(end - Date.parse(start))
 })
 
 const liveLabel = computed(() => {
   if (done.value) return progress.value?.status === 'failed' ? 'Finished with failures' : 'Delivery finished'
+  if (scheduled.value && connection.value === 'live') return 'Scheduled'
   return {
     connecting: 'Connecting…',
     live: 'Live',
@@ -95,6 +109,7 @@ const liveLabel = computed(() => {
 })
 const liveDot = computed(() => {
   if (done.value) return 'bg-slate-400'
+  if (scheduled.value && connection.value === 'live') return 'bg-cyan-500'
   return connection.value === 'live' ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400'
 })
 </script>
@@ -116,6 +131,16 @@ const liveDot = computed(() => {
     <div v-if="!progress && !streamError" class="h-40 animate-pulse rounded-xl bg-slate-200" aria-busy="true" />
 
     <template v-if="progress">
+      <div
+        v-if="scheduled && scheduledAt"
+        class="flex flex-wrap items-baseline justify-between gap-2 rounded-xl border border-cyan-200 bg-cyan-50 p-4 text-cyan-900"
+      >
+        <p>
+          <span class="font-medium">Scheduled for {{ formatDateTime(scheduledAt) }}</span>
+          <span class="text-cyan-800"> · sending starts {{ countdown }}</span>
+        </p>
+        <p class="text-sm text-cyan-800">{{ formatNumber(totals.total) }} messages are queued and waiting.</p>
+      </div>
       <div class="space-y-4 rounded-xl border border-slate-200 bg-white p-5">
         <div class="flex flex-wrap items-end justify-between gap-4">
           <div>
@@ -125,7 +150,7 @@ const liveDot = computed(() => {
             </p>
           </div>
           <dl class="flex gap-6 text-sm">
-            <div v-if="!done">
+            <div v-if="!done && !scheduled">
               <dt class="text-slate-500">Throughput</dt>
               <dd class="font-medium tabular-nums">{{ formatNumber(Math.round(rate)) }} msg/s</dd>
             </div>

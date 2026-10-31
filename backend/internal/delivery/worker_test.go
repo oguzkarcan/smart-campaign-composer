@@ -86,6 +86,7 @@ func (q *memQueue) Release(_ context.Context, jobs []Job) error {
 }
 
 func (q *memQueue) RecoverLeases(context.Context) (int, error)              { return 0, nil }
+func (q *memQueue) StartScheduled(context.Context) ([]int64, error)         { return nil, nil }
 func (q *memQueue) FinishCampaigns(context.Context) ([]CampaignDone, error) { return nil, nil }
 
 func (q *memQueue) count(status string) int {

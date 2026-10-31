@@ -193,7 +193,7 @@ func TestIntegrationApproveEnqueues(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	c, err := svc.Approve(ctx, c.ID)
+	c, err := svc.Approve(ctx, c.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +221,7 @@ func TestIntegrationApproveEnqueues(t *testing.T) {
 
 	// Enqueueing again adds nothing.
 	err = pgx.BeginFunc(ctx, db, func(tx pgx.Tx) error {
-		n, err := enqueue(ctx, tx, c.ID, *c.Rule, "sms", time.Now())
+		n, err := enqueue(ctx, tx, c.ID, *c.Rule, "sms", time.Now(), nil)
 		if err == nil && n != 0 {
 			err = fmt.Errorf("re-enqueue inserted %d messages", n)
 		}
@@ -230,7 +230,7 @@ func TestIntegrationApproveEnqueues(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.Approve(ctx, c.ID); !errors.Is(err, ErrConflict) {
+	if _, err := svc.Approve(ctx, c.ID, nil); !errors.Is(err, ErrConflict) {
 		t.Fatalf("second approve: err = %v", err)
 	}
 }
@@ -249,7 +249,7 @@ func TestIntegrationApproveOnlyCampaignChannels(t *testing.T) {
 	if _, err := svc.GenerateContent(ctx, c.ID, nil); err != nil {
 		t.Fatal(err)
 	}
-	c, err := svc.Approve(ctx, c.ID)
+	c, err := svc.Approve(ctx, c.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +288,7 @@ func TestIntegrationApproveUnreachableAudience(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := svc.Approve(ctx, c.ID); !errors.Is(err, ErrConflict) {
+	if _, err := svc.Approve(ctx, c.ID, nil); !errors.Is(err, ErrConflict) {
 		t.Fatalf("err = %v, want ErrConflict", err)
 	}
 	var n int
@@ -314,7 +314,7 @@ func TestIntegrationProgressAndList(t *testing.T) {
 	if p, err := svc.Progress(ctx, c.ID); err != nil || p.Totals.Total != 0 || len(p.Channels) != 2 || p.Done {
 		t.Fatalf("before approval: %+v, err %v", p, err)
 	}
-	c, err := svc.Approve(ctx, c.ID)
+	c, err := svc.Approve(ctx, c.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -384,7 +384,7 @@ func TestIntegrationConcurrentApprovals(t *testing.T) {
 	for range n {
 		go func() {
 			<-start
-			_, err := svc.Approve(ctx, c.ID)
+			_, err := svc.Approve(ctx, c.ID, nil)
 			errs <- err
 		}()
 	}

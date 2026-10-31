@@ -134,16 +134,26 @@ func (s *Server) handleEditContent(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, c)
 }
 
-// handleApprove locks the content and queues the messages. Content that no
-// longer fits the audience's worst-case lengths is a 422 with problems, like
-// an edit; a wrong status, a concurrent edit or an unreachable audience is a
-// 409. The request has no body.
+// approveRequest is the optional body of an approval; without send_at (or
+// without a body) the campaign starts sending now.
+type approveRequest struct {
+	SendAt *time.Time `json:"send_at"`
+}
+
+// handleApprove locks the content and queues the messages, due now or at
+// send_at (RFC 3339). Content that no longer fits the audience's worst-case
+// lengths is a 422 with problems, like an edit; a wrong status, a concurrent
+// edit or an unreachable audience is a 409; a send_at in the past is a 400.
 func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(w, r)
 	if !ok {
 		return
 	}
-	c, err := s.campaigns.Approve(r.Context(), id)
+	var req approveRequest
+	if !decodeOptional(w, r, &req) {
+		return
+	}
+	c, err := s.campaigns.Approve(r.Context(), id, req.SendAt)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -260,9 +270,22 @@ func pathID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 // the object are an error. Decoding a second value and requiring io.EOF also
 // catches a stray "}" or "]", which dec.More() would not report.
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {
+	return readJSON(w, r, v, false)
+}
+
+// decodeOptional is decode for a body that may be absent: an empty body
+// leaves v unchanged.
+func decodeOptional(w http.ResponseWriter, r *http.Request, v any) bool {
+	return readJSON(w, r, v, true)
+}
+
+func readJSON(w http.ResponseWriter, r *http.Request, v any, optional bool) bool {
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBodyBytes))
 	dec.DisallowUnknownFields()
 	err := dec.Decode(v)
+	if optional && err == io.EOF {
+		return true
+	}
 	if err == nil {
 		if extra := dec.Decode(&json.RawMessage{}); extra != io.EOF {
 			err = errors.New("unexpected data after the JSON object")

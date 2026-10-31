@@ -115,8 +115,9 @@ export function editContent(id: number, channel: Channel, edit: ContentEdit): Pr
   return request('PUT', `/campaigns/${id}/content/${channel}`, { body: edit })
 }
 
-export function approveCampaign(id: number): Promise<Campaign> {
-  return request('POST', `/campaigns/${id}/approve`)
+// approveCampaign sends now, or at sendAt (an ISO time) if given.
+export function approveCampaign(id: number, sendAt?: string): Promise<Campaign> {
+  return request('POST', `/campaigns/${id}/approve`, { body: sendAt ? { send_at: sendAt } : undefined })
 }
 
 export function getProgress(id: number, signal?: AbortSignal): Promise<Progress> {

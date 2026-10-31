@@ -120,6 +120,7 @@ async function regenerate() {
         :campaign-id="campaign.id"
         :channels="campaign.channels"
         :approved-at="campaign.approved_at"
+        :scheduled-at="campaign.scheduled_at"
         :updated-at="campaign.updated_at"
         @status="onDeliveryStatus"
       />

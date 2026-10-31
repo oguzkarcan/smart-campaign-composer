@@ -20,7 +20,10 @@ const error = ref<unknown>(null)
 let controller: AbortController | undefined
 let timer: ReturnType<typeof setTimeout> | undefined
 
-const active = computed(() => campaigns.value.some((c) => c.status === 'approved' || c.status === 'sending'))
+// Scheduled campaigns are polled too, so their row turns to sending on time.
+const active = computed(() =>
+  campaigns.value.some((c) => c.status === 'approved' || c.status === 'scheduled' || c.status === 'sending'),
+)
 
 // refresh reloads everything shown so far in one request; while a campaign is
 // delivering it repeats, so its row stays live.
@@ -114,6 +117,9 @@ const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', tim
               </span>
             </div>
             <p class="mt-1 truncate text-slate-800" :title="c.brief">{{ c.brief }}</p>
+            <p v-if="c.status === 'scheduled' && c.scheduled_at" class="mt-0.5 text-xs text-cyan-800">
+              Sends {{ dateFormat.format(new Date(c.scheduled_at)) }}
+            </p>
             <p v-if="c.last_error" class="mt-0.5 truncate text-xs text-rose-600" :title="c.last_error">
               {{ c.last_error }}
             </p>

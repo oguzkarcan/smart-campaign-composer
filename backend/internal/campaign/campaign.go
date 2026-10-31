@@ -22,11 +22,14 @@ const (
 	StatusAudienceReady = "audience_ready"
 	StatusContentReady  = "content_ready"
 	StatusApproved      = "approved"
+	StatusScheduled     = "scheduled"
 	StatusSending       = "sending"
 	StatusCompleted     = "completed"
 	StatusFailed        = "failed"
 
 	MaxBriefLength = 2000
+	// MaxScheduleAhead is how far in the future a campaign can be scheduled.
+	MaxScheduleAhead = 30 * 24 * time.Hour
 )
 
 // editable are the statuses before approval; only in these can the segment
@@ -51,8 +54,10 @@ type Campaign struct {
 	Contents   []Content         `json:"contents"`
 	LastError  string            `json:"last_error,omitempty"`
 	ApprovedAt *time.Time        `json:"approved_at,omitempty"`
-	CreatedAt  time.Time         `json:"created_at"`
-	UpdatedAt  time.Time         `json:"updated_at"`
+	// ScheduledAt is when a scheduled campaign starts sending.
+	ScheduledAt *time.Time `json:"scheduled_at,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
 
 	// VariableLengths is how many characters each personalization variable
 	// counts as in the worst-case length check, measured on the reachable
@@ -116,11 +121,12 @@ type Store interface {
 	SaveContent(ctx context.Context, id int64, c content.Content) error
 	EditContent(ctx context.Context, id int64, c content.Content, channel string) error
 	SetError(ctx context.Context, id int64, msg string) error
-	// Approve moves a content_ready campaign to sending and enqueues its
-	// messages in one transaction. It returns ErrConflict if the content is
+	// Approve moves a content_ready campaign to sending, or to scheduled if
+	// sendAt is set, and enqueues its messages in one transaction; scheduled
+	// messages are due at sendAt. It returns ErrConflict if the content is
 	// no longer at the validated versions (channel → version) or nobody can
 	// be reached.
-	Approve(ctx context.Context, id int64, versions map[string]int, now time.Time) error
+	Approve(ctx context.Context, id int64, versions map[string]int, now time.Time, sendAt *time.Time) error
 	// Progress counts the campaign's messages; ErrNotFound if it does not exist.
 	Progress(ctx context.Context, id int64) (Progress, error)
 	// List returns campaigns newest first, with ids below before (0: no bound).
@@ -307,7 +313,20 @@ func (s *Service) EditContent(ctx context.Context, id int64, channel string, e E
 // failures are a content.ValidationError and nothing is approved. Recipients
 // are computed again too: the rule matches who it matches today, and consent
 // is applied per channel by the store.
-func (s *Service) Approve(ctx context.Context, id int64) (Campaign, error) {
+//
+// With sendAt the campaign is scheduled: recipients and content are fixed
+// now, and the messages become due at sendAt. sendAt must be in the future
+// and at most MaxScheduleAhead away; nil sends now.
+func (s *Service) Approve(ctx context.Context, id int64, sendAt *time.Time) (Campaign, error) {
+	now := s.now()
+	if sendAt != nil {
+		if !sendAt.After(now) {
+			return Campaign{}, fmt.Errorf("%w: send_at must be in the future", ErrInvalid)
+		}
+		if sendAt.Sub(now) > MaxScheduleAhead {
+			return Campaign{}, fmt.Errorf("%w: send_at can be at most %d days ahead", ErrInvalid, int(MaxScheduleAhead.Hours()/24))
+		}
+	}
 	c, err := s.store.Get(ctx, id)
 	if err != nil {
 		return Campaign{}, err
@@ -316,7 +335,6 @@ func (s *Service) Approve(ctx context.Context, id int64) (Campaign, error) {
 		return Campaign{}, fmt.Errorf("%w: only generated, unapproved content can be approved (status %s)", ErrConflict, c.Status)
 	}
 
-	now := s.now()
 	lens, err := s.store.MaxLengths(ctx, *c.Rule, c.Channels, now)
 	if err != nil {
 		return Campaign{}, err
@@ -329,7 +347,7 @@ func (s *Service) Approve(ctx context.Context, id int64) (Campaign, error) {
 	for _, m := range c.Contents {
 		versions[m.Channel] = m.Version
 	}
-	if err := s.store.Approve(ctx, id, versions, now); err != nil {
+	if err := s.store.Approve(ctx, id, versions, now, sendAt); err != nil {
 		return Campaign{}, err
 	}
 	return s.Get(ctx, id)
@@ -381,15 +399,16 @@ type Progress struct {
 
 // Summary is a campaign in the list.
 type Summary struct {
-	ID         int64      `json:"id"`
-	Brief      string     `json:"brief"`
-	Status     string     `json:"status"`
-	Channels   []string   `json:"channels"`
-	Messages   Counts     `json:"messages"`
-	LastError  string     `json:"last_error,omitempty"`
-	ApprovedAt *time.Time `json:"approved_at,omitempty"`
-	CreatedAt  time.Time  `json:"created_at"`
-	UpdatedAt  time.Time  `json:"updated_at"`
+	ID          int64      `json:"id"`
+	Brief       string     `json:"brief"`
+	Status      string     `json:"status"`
+	Channels    []string   `json:"channels"`
+	Messages    Counts     `json:"messages"`
+	LastError   string     `json:"last_error,omitempty"`
+	ApprovedAt  *time.Time `json:"approved_at,omitempty"`
+	ScheduledAt *time.Time `json:"scheduled_at,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
 }
 
 const (

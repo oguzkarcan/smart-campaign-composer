@@ -19,6 +19,7 @@ type Queue interface {
 	Finish(ctx context.Context, j Job, res Result, d Decision) (bool, error)
 	Release(ctx context.Context, jobs []Job) error
 	RecoverLeases(ctx context.Context) (int, error)
+	StartScheduled(ctx context.Context) ([]int64, error)
 	FinishCampaigns(ctx context.Context) ([]CampaignDone, error)
 }
 
@@ -38,7 +39,8 @@ type WorkerConfig struct {
 	Lease time.Duration
 	// PollInterval is the wait when nothing is due.
 	PollInterval time.Duration
-	// HousekeepingInterval paces lease recovery and campaign completion.
+	// HousekeepingInterval paces lease recovery, starting scheduled
+	// campaigns and campaign completion.
 	HousekeepingInterval time.Duration
 }
 
@@ -175,7 +177,10 @@ func (w *Worker) release(jobs []Job) {
 	}
 }
 
-// housekeeping recovers expired leases and closes finished campaigns.
+// housekeeping recovers expired leases, starts scheduled campaigns that are
+// due and closes finished campaigns. Starting comes before closing, so a
+// campaign whose messages all went out in the moment between its time and
+// its start is closed in the same round.
 func (w *Worker) housekeeping(ctx context.Context) {
 	t := time.NewTicker(w.cfg.HousekeepingInterval)
 	defer t.Stop()
@@ -184,6 +189,13 @@ func (w *Worker) housekeeping(ctx context.Context) {
 			slog.Error("lease recovery failed", "err", err)
 		} else if n > 0 {
 			slog.Warn("recovered messages with expired leases", "count", n)
+		}
+		started, err := w.queue.StartScheduled(ctx)
+		if err != nil && !errors.Is(err, context.Canceled) {
+			slog.Error("starting scheduled campaigns failed", "err", err)
+		}
+		for _, id := range started {
+			slog.Info("scheduled campaign started sending", "campaign_id", id)
 		}
 		done, err := w.queue.FinishCampaigns(ctx)
 		if err != nil && !errors.Is(err, context.Canceled) {

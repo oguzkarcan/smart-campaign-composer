@@ -47,7 +47,7 @@ sends them through a queue to a mock provider, and shows delivery status live.
 - All code, comments, commit messages and docs are written in English.
 - Unfinished scope goes in the README. Session exports go in `ai-sessions/`
   (scrub API keys and personal data first).
-## Step-by-step plan (Day 2–5)
+## Step-by-step plan (Day 2–6)
 Progress is tracked here: tick a step (`[x]`) in the same commit that finishes it.
 Each step ends with `make test` → commit → push. The next unticked step is the
 one to work on after a `/clear`.
@@ -113,3 +113,25 @@ segment DSL + validator + SQL compiler + consent.
 - [x] 3. Fresh-clone `docker compose up` check, demo run with mock and Claude.
 - [x] 4. Session exports into `ai-sessions/` (scrub keys and personal data).
 - [x] 5. Optional if time: GitHub Actions CI running `make test`.
+
+### Day 6 – Bonuses and marketer UX
+- [x] 1. Scheduled sending: optional `send_at` on `POST /campaigns/{id}/approve`,
+  `scheduled_at` on campaigns, `scheduled` status that transitions to `sending`
+  when due (without closing early), UI option to "Send now" or "Schedule for
+  later", and unit/integration tests.
+- [ ] 2. Content by user's language (`tr`/`en`): generate, validate, edit, and
+  store content for each language present in the campaign's reachable audience
+  (`tr` and/or `en`), measure worst-case variable lengths per language, have the
+  worker render and send the message matching each recipient's
+  `users.language`, add language tabs in the UI editor + language counts in the
+  audience view, and tests.
+- [ ] 3. Marketer-oriented UX polish & UI `TR / EN` switcher: a `TR | EN`
+  language toggle in the header (`localStorage`) that switches UI labels, status
+  badges, and readable segment rules (`describeRule`) between Turkish and
+  English; a friendlier campaign view (a clear step progress bar
+  `Audience → Messages → Delivery`, realistic SMS bubble and email card
+  previews, raw JSON tucked into collapsible details); and a concise design note
+  for hash-based A/B variants in `README.md`'s unfinished scope.
+- [ ] 4. Final verification (`make vet`, `make test`, `make test-integration`),
+  update `README.md` and `DECISIONS.md`, and export + scrub
+  `ai-sessions/06-day6-scheduling-multilang-and-ux.md`.

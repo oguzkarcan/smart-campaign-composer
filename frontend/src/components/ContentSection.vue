@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { approveCampaign, generateContent } from '@/api/client'
 import type { Campaign, Channel, Content } from '@/api/types'
-import { channelLabels, formatNumber } from '@/lib/format'
+import { channelLabels, formatDateTime, formatNumber } from '@/lib/format'
+import { defaultSchedule, MAX_SCHEDULE_DAYS, parseSchedule, toLocalInput } from '@/lib/schedule'
 import ChannelEditor from './ChannelEditor.vue'
 import ErrorAlert from './ErrorAlert.vue'
 
@@ -18,6 +19,16 @@ let controller: AbortController | undefined
 
 const approving = ref(false)
 const approveError = ref<unknown>(null)
+// "Send now" or "Schedule for later" (a datetime-local value, local time).
+const when = ref<'now' | 'later'>('now')
+const scheduleInput = ref(defaultSchedule(new Date()))
+// The time the schedule is checked against; refreshed when the choice changes
+// and on approve, since the page may have been open for a while.
+const checkedAt = ref(new Date())
+watch([when, scheduleInput], () => (checkedAt.value = new Date()))
+const schedule = computed(() => (when.value === 'later' ? parseSchedule(scheduleInput.value, checkedAt.value) : null))
+const scheduleMin = computed(() => toLocalInput(new Date()))
+const scheduleMax = computed(() => toLocalInput(new Date(Date.now() + MAX_SCHEDULE_DAYS * 86_400_000)))
 
 const editorStates = reactive<Partial<Record<Channel, { dirty: boolean; valid: boolean }>>>({})
 
@@ -34,7 +45,9 @@ const reachable = computed(() => {
 const editable = computed(() => status.value === 'content_ready' && !generating.value && !approving.value)
 const anyDirty = computed(() => Object.values(editorStates).some((s) => s?.dirty))
 const allValid = computed(() => Object.values(editorStates).every((s) => s?.valid))
-const canApprove = computed(() => editable.value && contents.value.length > 0 && !anyDirty.value && allValid.value)
+const canApprove = computed(
+  () => editable.value && contents.value.length > 0 && !anyDirty.value && allValid.value && !schedule.value?.error,
+)
 const approveHint = computed(() => {
   if (anyDirty.value) return 'Save or discard your changes before approving.'
   if (!allValid.value) return 'Fix the problems above before approving.'
@@ -95,11 +108,17 @@ async function approve() {
   if (!canApprove.value) return
   const a = props.campaign.audience
   const parts = props.campaign.channels.map((ch) => `${formatNumber(a?.[ch] ?? 0)} ${channelLabels[ch]}`)
-  if (!confirm(`Approve and send ${parts.join(' + ')} messages? The content is locked after this.`)) return
+  checkedAt.value = new Date()
+  const s = schedule.value
+  if (s?.error) return // shown under the time picker
+  const action = s?.sendAt
+    ? `Schedule ${parts.join(' + ')} messages for ${formatDateTime(s.sendAt)}?`
+    : `Approve and send ${parts.join(' + ')} messages now?`
+  if (!confirm(`${action} The content is locked after this.`)) return
   approving.value = true
   approveError.value = null
   try {
-    emit('update', await approveCampaign(props.campaign.id))
+    emit('update', await approveCampaign(props.campaign.id, s?.sendAt))
   } catch (e) {
     approveError.value = e
   } finally {
@@ -174,17 +193,49 @@ async function approve() {
 
       <ErrorAlert v-if="approveError" :error="approveError" title="Could not approve" />
 
-      <div v-if="status === 'content_ready'" class="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          :disabled="!canApprove"
-          class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-          @click="approve"
-        >
-          {{ approving ? 'Approving…' : 'Approve and send' }}
-        </button>
-        <span v-if="approveHint" class="text-sm text-slate-500">{{ approveHint }}</span>
+      <div v-if="status === 'content_ready'" class="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+        <fieldset class="space-y-2" :disabled="!editable">
+          <legend class="text-sm font-medium text-slate-700">When should the messages go out?</legend>
+          <div class="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
+            <label class="flex items-center gap-2">
+              <input v-model="when" type="radio" value="now" class="accent-emerald-600" />
+              Send now
+            </label>
+            <label class="flex items-center gap-2">
+              <input v-model="when" type="radio" value="later" class="accent-emerald-600" />
+              Schedule for later
+            </label>
+            <input
+              v-if="when === 'later'"
+              v-model="scheduleInput"
+              type="datetime-local"
+              aria-label="Send date and time"
+              :min="scheduleMin"
+              :max="scheduleMax"
+              class="rounded-lg border border-slate-300 px-2 py-1 text-sm"
+              :class="{ 'border-rose-400': schedule?.error }"
+            />
+          </div>
+          <p v-if="schedule?.error" class="text-sm text-rose-600">{{ schedule.error }}</p>
+          <p v-else-if="schedule?.sendAt" class="text-sm text-slate-500">
+            Recipients and content are fixed now; sending starts {{ formatDateTime(schedule.sendAt) }} (your local time).
+          </p>
+        </fieldset>
+        <div class="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            :disabled="!canApprove"
+            class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+            @click="approve"
+          >
+            {{ approving ? 'Approving…' : when === 'later' ? 'Approve and schedule' : 'Approve and send' }}
+          </button>
+          <span v-if="approveHint" class="text-sm text-slate-500">{{ approveHint }}</span>
+        </div>
       </div>
+      <p v-else-if="status === 'scheduled' && campaign.scheduled_at" class="text-sm text-slate-500">
+        This content was approved and is locked; it will be sent {{ formatDateTime(campaign.scheduled_at) }}.
+      </p>
       <p v-else class="text-sm text-slate-500">This content was approved and is locked.</p>
     </template>
   </section>

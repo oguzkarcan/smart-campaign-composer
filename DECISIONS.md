@@ -214,6 +214,25 @@ listed in the [README](README.md#unfinished-scope-and-known-gaps).
   `UNIQUE(campaign_id, user_id, channel)`. The rows are created in Postgres,
   not loaded into Go. If nobody is reachable any more, approval is refused
   instead of starting an empty campaign.
+- **Scheduled sending reuses the queue's due time.** `send_at` on approval
+  (optional, RFC 3339, in the future and at most 30 days ahead) queues the
+  messages with `next_attempt_at = send_at` and sets the campaign to
+  `scheduled` with `scheduled_at`. The worker already claims only due
+  messages, so nothing is sent early without a new code path in the claim.
+  Its housekeeping loop moves due `scheduled` campaigns to `sending` before
+  the completion check, which only looks at `sending`, so a scheduled
+  campaign can never be closed early, and one whose messages all went out in
+  the second before its start is closed in the same round.
+- **A scheduled campaign is approved like any other:** content validated and
+  locked, recipients computed and consent applied at approval. The marketer
+  sees the exact count that will be sent, and the worker's send-time checks
+  (rendered length, header injection) still apply. The cost: someone who
+  joins the segment or withdraws consent before the send time is not picked
+  up (listed as a known gap, together with pause/cancel; a status gate in the
+  claim would be the place for both).
+- **Times are absolute.** The API takes RFC 3339 with an offset; the UI's
+  date-time picker is in the browser's local time and is converted to UTC
+  before sending, and shows the time back in local time.
 - **The service depends on a small `Store` interface.** Flow rules are
   unit-tested with an in-memory store (`make test`, no database); the Postgres
   store is covered by integration tests against the seeded database.
@@ -389,6 +408,13 @@ listed in the [README](README.md#unfinished-scope-and-known-gaps).
   content stream has no overall timeout: its progress is visible and it can
   be cancelled. The header's health check shows a banner while the API is
   down.
+- **Schedule choice sits next to the approve button** (*Send now* /
+  *Schedule for later* with a date-time picker, defaulting to the next full
+  hour). It is checked in the browser with the server's range (at least a
+  minute ahead, at most 30 days) and checked again at click time, since the
+  page may have been open a while. A scheduled campaign shows the dashboard
+  with a countdown banner; the list keeps polling scheduled campaigns so
+  their row turns to *Sending* on time.
 - **Unsaved message edits are guarded** on route changes and on closing the
   tab, since edits only reach the server on Save.
 - **Frontend checks are part of `make test`:** `vue-tsc` type checking and

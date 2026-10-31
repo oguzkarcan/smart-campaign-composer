@@ -19,7 +19,7 @@ import (
 var (
 	channels        = []string{"sms", "email"}
 	messageStatuses = []string{"queued", "processing", "retry", "sent", "failed"}
-	campaignStatus  = []string{"draft", "audience_ready", "content_ready", "approved", "sending", "completed", "failed"}
+	campaignStatus  = []string{"draft", "audience_ready", "content_ready", "approved", "scheduled", "sending", "completed", "failed"}
 )
 
 // Attempts aggregates provider calls with the same labels.

@@ -7,6 +7,7 @@ export const statusLabels: Record<CampaignStatus, string> = {
   audience_ready: 'Audience ready',
   content_ready: 'Content ready',
   approved: 'Approved',
+  scheduled: 'Scheduled',
   sending: 'Sending',
   completed: 'Completed',
   failed: 'Failed',
@@ -19,4 +20,10 @@ const numberFormat = new Intl.NumberFormat('en-US')
 
 export function formatNumber(n: number): string {
   return numberFormat.format(n)
+}
+
+const dateTimeFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+
+export function formatDateTime(iso: string): string {
+  return dateTimeFormat.format(new Date(iso))
 }

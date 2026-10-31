@@ -257,7 +257,7 @@ func TestApprove(t *testing.T) {
 	ctx := context.Background()
 	c := readyCampaign(t, svc, []string{"sms", "email"})
 
-	c, err := svc.Approve(ctx, c.ID)
+	c, err := svc.Approve(ctx, c.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,7 +270,7 @@ func TestApprove(t *testing.T) {
 	}
 
 	// The content is locked, and approving twice is refused.
-	if _, err := svc.Approve(ctx, c.ID); !errors.Is(err, campaign.ErrConflict) {
+	if _, err := svc.Approve(ctx, c.ID, nil); !errors.Is(err, campaign.ErrConflict) {
 		t.Errorf("second Approve: err = %v", err)
 	}
 	if _, err := svc.EditContent(ctx, c.ID, "sms", campaign.Edit{Body: "Hi"}); !errors.Is(err, campaign.ErrConflict) {
@@ -278,20 +278,72 @@ func TestApprove(t *testing.T) {
 	}
 }
 
+// A scheduled approval locks the content and queues the same messages as
+// sending now, but the campaign waits in "scheduled".
+func TestApproveScheduled(t *testing.T) {
+	svc, store := newTestService(&llm.Mock{})
+	ctx := context.Background()
+	c := readyCampaign(t, svc, []string{"sms", "email"})
+
+	sendAt := time.Now().Add(2 * time.Hour)
+	c, err := svc.Approve(ctx, c.ID, &sendAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Status != campaign.StatusScheduled || c.ScheduledAt == nil || !c.ScheduledAt.Equal(sendAt) || c.ApprovedAt == nil {
+		t.Fatalf("status %s, scheduled_at %v, approved_at %v", c.Status, c.ScheduledAt, c.ApprovedAt)
+	}
+	if got := store.Queued[c.ID]; got != 280 {
+		t.Fatalf("queued %d messages, want 280", got)
+	}
+	if p, err := svc.Progress(ctx, c.ID); err != nil || p.Done {
+		t.Fatalf("progress done %v, err %v", p.Done, err)
+	}
+	if _, err := svc.EditContent(ctx, c.ID, "sms", campaign.Edit{Body: "Hi"}); !errors.Is(err, campaign.ErrConflict) {
+		t.Errorf("EditContent while scheduled: err = %v", err)
+	}
+	if _, err := svc.Approve(ctx, c.ID, nil); !errors.Is(err, campaign.ErrConflict) {
+		t.Errorf("Approve while scheduled: err = %v", err)
+	}
+}
+
+func TestApproveSendAtMustBeInRange(t *testing.T) {
+	svc, store := newTestService(&llm.Mock{})
+	ctx := context.Background()
+	c := readyCampaign(t, svc, []string{"sms"})
+
+	for name, sendAt := range map[string]time.Time{
+		"past":      time.Now().Add(-time.Minute),
+		"too far":   time.Now().Add(campaign.MaxScheduleAhead + time.Hour),
+		"zero time": {},
+	} {
+		if _, err := svc.Approve(ctx, c.ID, &sendAt); !errors.Is(err, campaign.ErrInvalid) {
+			t.Errorf("%s: err = %v, want ErrInvalid", name, err)
+		}
+	}
+	if c, _ := svc.Get(ctx, c.ID); c.Status != campaign.StatusContentReady || store.Queued[c.ID] != 0 {
+		t.Fatalf("status %s, queued %d", c.Status, store.Queued[c.ID])
+	}
+	ok := time.Now().Add(campaign.MaxScheduleAhead - time.Hour)
+	if _, err := svc.Approve(ctx, c.ID, &ok); err != nil {
+		t.Fatalf("within range: %v", err)
+	}
+}
+
 func TestApproveNeedsContent(t *testing.T) {
 	svc, _ := newTestService(&llm.Mock{})
 	ctx := context.Background()
 	c, _ := svc.Create(ctx, exampleBrief, []string{"sms"})
-	if _, err := svc.Approve(ctx, c.ID); !errors.Is(err, campaign.ErrConflict) {
+	if _, err := svc.Approve(ctx, c.ID, nil); !errors.Is(err, campaign.ErrConflict) {
 		t.Errorf("draft: err = %v", err)
 	}
 	if _, err := svc.GenerateSegment(ctx, c.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.Approve(ctx, c.ID); !errors.Is(err, campaign.ErrConflict) {
+	if _, err := svc.Approve(ctx, c.ID, nil); !errors.Is(err, campaign.ErrConflict) {
 		t.Errorf("audience_ready: err = %v", err)
 	}
-	if _, err := svc.Approve(ctx, 404); !errors.Is(err, campaign.ErrNotFound) {
+	if _, err := svc.Approve(ctx, 404, nil); !errors.Is(err, campaign.ErrNotFound) {
 		t.Errorf("unknown campaign: err = %v", err)
 	}
 }
@@ -309,7 +361,7 @@ func TestApproveRevalidatesAgainstCurrentAudience(t *testing.T) {
 	}
 
 	store.Lens = content.MaxLengths{content.VarFirstName: 15, content.VarCity: 10}
-	_, err := svc.Approve(ctx, c.ID)
+	_, err := svc.Approve(ctx, c.ID, nil)
 	var verr content.ValidationError
 	if !errors.As(err, &verr) || verr[0].Path != "sms.body" {
 		t.Fatalf("err = %v, want a validation error at sms.body", err)
@@ -319,7 +371,7 @@ func TestApproveRevalidatesAgainstCurrentAudience(t *testing.T) {
 	}
 
 	store.Lens = content.MaxLengths{content.VarFirstName: 13, content.VarCity: 10}
-	if _, err := svc.Approve(ctx, c.ID); err != nil {
+	if _, err := svc.Approve(ctx, c.ID, nil); err != nil {
 		t.Fatalf("approve after the audience shrank back: %v", err)
 	}
 }
@@ -334,7 +386,7 @@ func TestApproveRefusesChangedContent(t *testing.T) {
 	if _, err := svc.EditContent(ctx, c.ID, "sms", campaign.Edit{Body: "Hi"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Approve(ctx, c.ID, validated, time.Now()); !errors.Is(err, campaign.ErrConflict) {
+	if err := store.Approve(ctx, c.ID, validated, time.Now(), nil); !errors.Is(err, campaign.ErrConflict) {
 		t.Fatalf("err = %v, want ErrConflict", err)
 	}
 }
