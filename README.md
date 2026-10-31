@@ -136,7 +136,10 @@ Done:
   the same transaction (rule AND consent AND campaign channels).
 - Provider client: renders at send time, `messages.id` as idempotency key,
   classifies responses (sent / retryable with `Retry-After` / permanent).
+- Worker: claims with `FOR UPDATE SKIP LOCKED` and a 30 s lease, 100 msg/s
+  per channel, up to 5 attempts with jittered exponential backoff and
+  `Retry-After`, lease recovery, campaign completion, graceful shutdown.
 
 Not done yet:
-- Worker sending, retries, `/metrics`.
+- `/metrics`, campaign events (SSE) and campaign list endpoints.
 - Vue frontend and live dashboard.

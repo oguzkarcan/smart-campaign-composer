@@ -97,6 +97,8 @@ services:
   worker:
     <<: *backend
     command: ["/app/worker"]
+    # Graceful shutdown waits for provider calls in flight (10 s timeout).
+    stop_grace_period: 15s
     depends_on:
       migrate:
         condition: service_completed_successfully

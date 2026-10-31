@@ -85,7 +85,7 @@ segment DSL + validator + SQL compiler + consent.
 - [x] 2. `internal/delivery` provider client: render at send time, `messages.id`
   as idempotency key, classify responses (ok / retryable 5xx+timeout / 429 with
   Retry-After / permanent 4xx).
-- [ ] 3. Worker: claim with `FOR UPDATE SKIP LOCKED` + 30 s lease, per-channel
+- [x] 3. Worker: claim with `FOR UPDATE SKIP LOCKED` + 30 s lease, per-channel
   token bucket 100/s, record `message_attempts`, backoff with jitter (1 s base,
   60 s cap, max 5 attempts), lease recovery loop, campaign `completed` detection,
   graceful shutdown.

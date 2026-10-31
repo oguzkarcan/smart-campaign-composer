@@ -60,8 +60,10 @@ func (o Outcome) String() string {
 // stored rendered; the same Job always renders to the same payload, so a
 // retry sends exactly what the first attempt sent.
 type Job struct {
-	MessageID int64
-	Channel   string // content.ChannelSMS or content.ChannelEmail
+	MessageID  int64
+	CampaignID int64
+	Channel    string // content.ChannelSMS or content.ChannelEmail
+	Attempt    int    // 1-based; the queue counts it when the job is claimed
 
 	Email     string
 	Phone     string

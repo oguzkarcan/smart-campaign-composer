@@ -280,6 +280,44 @@ appended at the bottom of each section.
 - **Crash recovery:** a claimed message gets a 30 s lease (`lease_until`); if the
   worker dies, messages stuck in `processing` are reclaimed after the lease
   expires.
+- **Claiming is one statement:** `UPDATE … FROM (SELECT … FOR UPDATE SKIP
+  LOCKED LIMIT n)` marks the messages `processing`, sets the lease, counts the
+  attempt and returns each message with its recipient and the locked content,
+  so sending needs no further queries. Due times and leases use the database
+  clock (`now()`).
+- **The attempt is counted when it is claimed,** not when it finishes, so a
+  worker that dies mid-send still uses up an attempt and no message is retried
+  forever. On graceful shutdown, claimed messages that were never sent are
+  released and get their attempt back.
+- **A result is applied only by the worker that still holds the message**
+  (`status = 'processing' AND attempts = <its attempt>`). If the lease expired
+  and the message was reclaimed, the late call is still recorded in
+  `message_attempts` but does not overwrite the newer attempt; a late "sent"
+  is harmless because the retry reuses the idempotency key and is replayed.
+  Lease recovery writes no attempt row for the same reason.
+- **Backoff uses "equal jitter":** a random wait between half and all of
+  `min(1 s · 2^(attempt-1), 60 s)`. Jitter spreads out messages that failed
+  together; keeping the lower half keeps the wait growing. On 429/503 the
+  wait is the longer of the backoff and `Retry-After`, the latter capped at
+  5 minutes so a broken header cannot stall a campaign. 429s count as
+  attempts like any other failure; the worker's own limiter keeps them rare.
+- **Rate limit: a token bucket per channel, 100/s with a burst of 10,** below
+  the provider's burst so the edges of a second do not trip its limit. The
+  worker claims only as many messages as it has free send slots (32 per
+  channel), so a claimed message waits at most a third of a second for a
+  token, far inside its 30 s lease.
+- **Graceful shutdown:** on SIGTERM the worker stops claiming, releases
+  claimed but unsent messages, and lets calls in flight finish and be
+  recorded (bounded by the 10 s client timeout; compose gives it 15 s).
+  Cancelling a call mid-flight would leave its outcome unknown and cost an
+  attempt; anything left over is recovered by the lease.
+- **Campaign completion:** a housekeeping loop (every second) recovers expired
+  leases and closes `sending` campaigns with nothing left to send:
+  `completed` if at least one message was sent, `failed` if none was. Failed
+  messages are visible per message (`last_error`) and in the dashboard.
+- **Integration tests run one package at a time and pause the compose
+  worker,** since they share the database and claims take due messages of any
+  campaign.
 - **`message_attempts`** records every provider call (status code, error,
   latency) for metrics and debugging.
 

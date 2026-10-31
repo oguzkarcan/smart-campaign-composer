@@ -38,12 +38,16 @@ logs: ## Follow service logs
 test: ## Run backend tests (mock LLM, no API key needed)
 	$(GO) test ./...
 
+# The compose worker is paused meanwhile, so it does not take the tests'
+# queued messages; it is started again afterwards, even if the tests fail.
 test-integration: ## Run DB integration tests against the seeded compose Postgres
 	docker compose run --rm seed
-	$(MAKE) --no-print-directory _test-integration $(INTEGRATION_FLAGS)
+	docker compose stop worker
+	$(MAKE) --no-print-directory _test-integration $(INTEGRATION_FLAGS); \
+	status=$$?; docker compose start worker >/dev/null 2>&1; exit $$status
 
 _test-integration:
-	$(GO) test -tags integration -count=1 ./...
+	$(GO) test -tags integration -count=1 -p 1 ./... # packages share the database
 
 fmt: ## Format Go code
 	$(GO) fmt ./...
