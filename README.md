@@ -11,13 +11,14 @@ shows delivery status live.
 > Insider One · AI Developer Case Study. No real messages are ever sent: all
 > recipients are generated fake users and delivery goes to a local mock provider.
 
-The web app is branded **Sirius Studio**. A finished campaign, in light mode
-(English) and in dark mode (Turkish), previewing the messages as one of the
-matching people:
+The web app is branded **Sirius Studio**. The Message Studio fits one desktop
+screen: one channel's editor and the approval bar beside a live device preview,
+here previewing the messages as one of the matching people. SMS in the warm
+light theme (English interface), email in the dark theme (Turkish interface):
 
 | Light · EN | Dark · TR |
 | --- | --- |
-| ![Campaign page in light mode: hero card, step bar and delivery dashboard](docs/images/studio-light.png) | ![Messages section in dark mode: SMS editor beside the phone preview](docs/images/studio-dark.png) |
+| ![Message Studio in light mode: SMS editor and approval bar beside the phone preview](docs/images/studio-light.png) | ![Message Studio in dark mode: email editor and approval bar beside the inbox preview](docs/images/studio-dark.png) |
 
 ## Quick start
 
