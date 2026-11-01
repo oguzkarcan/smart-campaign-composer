@@ -15,12 +15,13 @@
     />
     <title>Sirius Studio</title>
     <script>
-      // Apply the theme before the app loads (same rule as src/lib/theme.ts).
+      // Apply the theme before the app loads (defaults to dark on first visit).
       try {
         var t = localStorage.getItem('scc.theme')
-        if (t === 'dark' || (t !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches))
-          document.documentElement.classList.add('dark')
-      } catch (e) {}
+        if (t !== 'light') document.documentElement.classList.add('dark')
+      } catch (e) {
+        document.documentElement.classList.add('dark')
+      }
     </script>
   </head>
   <body class="bg-slate-50 text-slate-900 antialiased">

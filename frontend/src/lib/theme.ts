@@ -1,6 +1,6 @@
 // Light / dark theme. The choice is saved in localStorage; without one the
-// OS setting (prefers-color-scheme) decides and is followed live. index.html
-// applies the same rule before the app loads, so the page does not flash.
+// default is dark. index.html applies the same rule before the app loads,
+// so the page does not flash.
 import { ref } from 'vue'
 
 export type Theme = 'light' | 'dark'
@@ -18,13 +18,7 @@ function saved(): Theme | null {
   }
 }
 
-const media = typeof window === 'undefined' ? null : window.matchMedia('(prefers-color-scheme: dark)')
-
-function system(): Theme {
-  return media?.matches ? 'dark' : 'light'
-}
-
-export const theme = ref<Theme>(typeof window === 'undefined' ? 'light' : (saved() ?? system()))
+export const theme = ref<Theme>(saved() ?? 'dark')
 
 function apply(t: Theme) {
   document.documentElement.classList.toggle('dark', t === 'dark')
@@ -40,13 +34,7 @@ export function setTheme(t: Theme) {
   apply(t)
 }
 
-// initTheme applies the current theme and follows OS changes until the
-// marketer picks one.
+// initTheme applies the current theme (defaulting to dark).
 export function initTheme() {
   apply(theme.value)
-  media?.addEventListener('change', () => {
-    if (saved()) return
-    theme.value = system()
-    apply(theme.value)
-  })
 }
