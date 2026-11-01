@@ -12,6 +12,8 @@ import ChannelEditor from './ChannelEditor.vue'
 import SectionShell from './SectionShell.vue'
 import ErrorAlert from './ErrorAlert.vue'
 
+const BRIEF_CLAMP_CHARS = 240
+
 const props = defineProps<{ campaign: Campaign; previewPerson?: Person | null }>()
 const emit = defineEmits<{ update: [campaign: Campaign]; busy: [busy: boolean]; clearPreview: [] }>()
 
@@ -19,6 +21,9 @@ const generating = ref(false)
 const attempt = ref(1)
 const streamLanguage = ref<Language | null>(null)
 const streamed = ref('')
+// The brief stays next to the editors for comparison; a long one starts clamped.
+const briefLong = computed(() => props.campaign.brief.length > BRIEF_CLAMP_CHARS)
+const briefExpanded = ref(false)
 const generateError = ref<unknown>(null)
 // The fields of the answer being streamed, for the live editors and previews.
 const live = computed(() => extractPartial(streamed.value))
@@ -202,6 +207,27 @@ async function approve() {
         {{ t('messages.regenerate') }}
       </button>
     </template>
+
+    <figure class="rounded-lg border-l-4 border-amber-400 bg-amber-50/70 px-4 py-3">
+      <div class="flex items-center justify-between gap-3">
+        <p class="flex items-center gap-1.5 text-xs font-bold tracking-wider text-amber-800 uppercase">
+          <span aria-hidden="true">✦</span> {{ t('new.brief') }}
+        </p>
+        <button
+          v-if="briefLong"
+          type="button"
+          class="shrink-0 text-xs font-medium text-amber-800 hover:underline"
+          :aria-expanded="briefExpanded"
+          @click="briefExpanded = !briefExpanded"
+        >
+          {{ briefExpanded ? t('messages.briefLess') : t('messages.briefMore') }}
+        </button>
+      </div>
+      <blockquote
+        class="mt-1 text-sm leading-relaxed whitespace-pre-line text-slate-700 italic"
+        :class="{ 'line-clamp-3': briefLong && !briefExpanded }"
+      >{{ campaign.brief }}</blockquote>
+    </figure>
 
     <ErrorAlert v-if="generateError" :error="generateError" :title="t('messages.error')" />
 

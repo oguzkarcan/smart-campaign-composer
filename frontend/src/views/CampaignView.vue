@@ -151,6 +151,7 @@ async function regenerate() {
             >
               <path d="M9.5 6C6.5 6.6 4.5 9 4.5 12.3V18h5.6v-5.6H7.4c.1-2 1.2-3.3 2.6-3.8L9.5 6zm9.4 0c-3 .6-5 3-5 6.3V18h5.6v-5.6h-2.7c.1-2 1.2-3.3 2.6-3.8L18.9 6z" />
             </svg>
+            <p class="text-xs font-bold tracking-wider uppercase text-amber-800 mb-1 flex items-center gap-1.5"><span aria-hidden="true">✦</span> {{ t('new.brief') }}</p>
             <blockquote class="text-[15px] leading-relaxed whitespace-pre-line text-slate-800">{{ campaign.brief }}</blockquote>
           </figure>
         </div>
