@@ -43,13 +43,14 @@ export function campaignSteps(status: CampaignStatus): Step[] {
   }
 }
 
-// defaultStep is the step a campaign page opens on: where the marketer's next
-// action is, or the live dashboard once the messages are approved.
+// defaultStep is the step a campaign page opens on: a new audience is reviewed
+// before anything else, then the messages, then the live dashboard once they
+// are approved.
 export function defaultStep(status: CampaignStatus): StepNumber {
   switch (status) {
     case 'draft':
-      return 1
     case 'audience_ready':
+      return 1
     case 'content_ready':
       return 2
     default:

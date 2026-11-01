@@ -103,6 +103,7 @@ const en = {
 
   // Audience
   'audience.title': 'Audience',
+  'audience.continue': 'Continue to Messages →',
   'audience.regenerate': 'Regenerate audience',
   'audience.regenerating': 'Regenerating…',
   'audience.confirmRegenerate': 'A new audience discards the generated messages. Continue?',
@@ -357,6 +358,7 @@ const tr: Record<MessageKey, string> = {
   'campaign.channels': 'Kanallar:',
 
   'audience.title': 'Kitle',
+  'audience.continue': 'Mesajlara Devam Et →',
   'audience.regenerate': 'Kitleyi yeniden oluştur',
   'audience.regenerating': 'Yeniden oluşturuluyor…',
   'audience.confirmRegenerate': 'Yeni bir kitle, yazılmış mesajları siler. Devam edilsin mi?',

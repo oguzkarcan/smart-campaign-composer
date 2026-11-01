@@ -23,7 +23,7 @@ describe('campaignSteps', () => {
 describe('defaultStep', () => {
   it('opens where the next action is', () => {
     expect(defaultStep('draft')).toBe(1)
-    expect(defaultStep('audience_ready')).toBe(2)
+    expect(defaultStep('audience_ready')).toBe(1)
     expect(defaultStep('content_ready')).toBe(2)
   })
 

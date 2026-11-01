@@ -230,6 +230,17 @@ async function regenerate() {
             @select="selectPerson"
           />
         </div>
+
+        <div v-if="editable && campaign.segment_rule" class="flex justify-end">
+          <button
+            type="button"
+            :disabled="generating"
+            class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+            @click="activeStep = 2"
+          >
+            {{ t('audience.continue') }}
+          </button>
+        </div>
       </SectionShell>
 
       </div>

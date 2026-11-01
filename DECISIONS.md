@@ -532,8 +532,10 @@ listed in the [README](README.md#unfinished-scope-and-known-gaps).
   streamed output are in collapsed `<details>`, and generation shows a
   progress card.
 - **Campaign page as a step workspace, Message Studio on one screen.** Only
-  the active step shows; the page opens on the step with the next action
-  (`defaultStep`), and approving moves to Delivery. Hidden steps stay mounted
+  the active step shows; a new campaign opens on Audience so the marketer sees
+  who matched before any copy is written, one with messages opens on Messages
+  and an approved one on Delivery (`defaultStep`). "Continue to Messages" and
+  approving move forward. Hidden steps stay mounted
   (`v-show`, not `v-if`): unsaved drafts, a running generation and the live
   delivery stream live in those components, and unmounting would lose or
   cancel them. For the same reason every editor stays mounted while one
