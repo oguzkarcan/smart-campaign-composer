@@ -19,7 +19,7 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ select: [person: Person | null] }>()
 
-const PAGE = 15
+const PAGE = 10
 
 // Open from the start: on wide screens the list sits beside the rule.
 const open = ref(true)
