@@ -1632,7 +1632,7 @@
   - I replaced your surname in the seed's name list with "Avcı", so your
     personal data doesn't end up in the repo.
   - Because I ran Go through newgrp docker, some files under backend/ got the
-    docker group. I changed them back to ozzy; nothing else needed changing.
+    docker group. I changed them back to user; nothing else needed changing.
 
   Tests: make test, make vet and gofmt pass.
 

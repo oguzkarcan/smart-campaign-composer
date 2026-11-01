@@ -31,7 +31,7 @@ docker compose up
 ```
 
 Open http://localhost:3000. The header switches the interface language
-(`TR | EN`) and the colour theme (light / dark, following the OS until you
+(`TR | EN`) and the colour theme (light / dark, defaulting to dark until you
 pick one); both are remembered in the browser.
 
 | Service        | URL                           |

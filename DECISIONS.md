@@ -570,7 +570,7 @@ listed in the [README](README.md#unfinished-scope-and-known-gaps).
   dark. Primary buttons become light-on-dark tints with dark text, which
   keeps their contrast. `color-scheme: dark` makes native controls (date
   picker, checkboxes) dark too. The choice is saved in `localStorage`;
-  without one the OS setting is followed live, and a small inline script in
+  without one it defaults to dark, and a small inline script in
   `index.html` applies it before the app loads, so there is no light flash.
 - **Unsaved message edits are guarded** on route changes and on closing the
   tab, since edits only reach the server on Save.
