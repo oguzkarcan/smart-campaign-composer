@@ -72,12 +72,12 @@ onUnmounted(() => {
 
 <template>
   <section class="space-y-6">
-    <div class="relative overflow-hidden rounded-2xl border border-indigo-100 bg-white p-6 shadow-sm sm:p-8">
+    <div class="relative overflow-hidden rounded-2xl border border-stone-200 bg-white p-6 shadow-sm sm:p-8 dark:border-indigo-100">
       <div
-        class="pointer-events-none absolute inset-0 bg-linear-to-br from-indigo-50 via-white to-violet-50 opacity-90"
+        class="pointer-events-none absolute inset-0 bg-linear-to-br from-[#F4462A]/6 via-white to-[#F59E0B]/8 opacity-90 dark:from-indigo-50 dark:to-violet-50"
         aria-hidden="true"
       />
-      <div class="pointer-events-none absolute -top-20 -right-10 size-64 rounded-full bg-violet-200/40 blur-3xl" aria-hidden="true" />
+      <div class="pointer-events-none absolute -top-20 -right-10 size-64 rounded-full bg-[#F4462A]/10 blur-3xl dark:bg-violet-200/40" aria-hidden="true" />
       <div class="relative flex flex-wrap items-end justify-between gap-6">
         <div class="max-w-2xl space-y-2">
           <p class="text-xs font-bold tracking-[0.14em] text-indigo-600 uppercase">{{ t('app.subtitle') }}</p>

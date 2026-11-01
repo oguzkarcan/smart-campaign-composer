@@ -531,6 +531,14 @@ listed in the [README](README.md#unfinished-scope-and-known-gaps).
   away instead of in the way: the segment rule JSON and the model's raw
   streamed output are in collapsed `<details>`, and generation shows a
   progress card.
+- **Warm light theme on a linen canvas, dark mode unchanged.** The light theme
+  uses `#F7F5F0` as its canvas with a coral and amber wash, and `#F4462A` for the
+  Insider One badge. Its neutrals are warmed in one place: `@theme` gives the
+  `slate-*` variables Tailwind's stone values, rather than rewriting some 200
+  classes, and the `.dark` block already sets every one of them. Hex and
+  `stone-*` classes are not part of the dark remap, so each has a `dark:` twin
+  holding the previous value. Checked by diffing dark screenshots pixel by pixel
+  against the previous build. Indigo stays the action colour.
 - **Campaign page as a step workspace, Message Studio on one screen.** Only
   the active step shows; a new campaign opens on Audience so the marketer sees
   who matched before any copy is written, one with messages opens on Messages

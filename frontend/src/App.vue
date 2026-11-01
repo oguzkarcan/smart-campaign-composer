@@ -35,7 +35,7 @@ const stateDot: Record<ApiState, string> = { checking: 'bg-slate-300', ok: 'bg-e
 
 <template>
   <div class="min-h-screen">
-    <header class="sticky top-0 z-30 border-b border-slate-200/80 bg-white/90 backdrop-blur-md">
+    <header class="sticky top-0 z-30 border-b border-stone-200/80 bg-[#F7F5F0]/85 backdrop-blur-md dark:border-slate-200/80 dark:bg-white/90">
       <div class="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-2.5">
         <nav class="flex min-w-0 items-center gap-6">
           <RouterLink to="/" class="group flex min-w-0 items-center gap-3">
@@ -55,7 +55,7 @@ const stateDot: Record<ApiState, string> = { checking: 'bg-slate-300', ok: 'bg-e
               <span class="flex items-center gap-2">
                 <span class="text-[15px] font-bold tracking-tight whitespace-nowrap text-slate-900">{{ t('app.title') }}</span>
                 <span
-                  class="hidden rounded-md border border-indigo-200 bg-indigo-50 px-1.5 py-px text-[10px] font-bold tracking-[0.12em] text-indigo-700 sm:inline"
+                  class="hidden rounded-md border border-[#F4462A]/25 bg-[#F4462A]/10 px-1.5 py-px text-[10px] font-bold tracking-[0.12em] text-[#F4462A] sm:inline dark:border-indigo-200 dark:bg-indigo-50 dark:text-indigo-700"
                 >
                   INSIDER ONE
                 </span>
@@ -64,7 +64,7 @@ const stateDot: Record<ApiState, string> = { checking: 'bg-slate-300', ok: 'bg-e
             </span>
           </RouterLink>
           <!-- On phones the pages' own buttons and back links do the navigation. -->
-          <div class="hidden items-center gap-1 rounded-xl bg-slate-100/80 p-1 text-sm md:flex">
+          <div class="hidden items-center gap-1 rounded-xl bg-stone-200/60 p-1 text-sm md:flex dark:bg-slate-100/80">
             <RouterLink
               to="/"
               class="rounded-lg px-3 py-1 font-medium text-slate-600 hover:text-slate-900"
@@ -106,7 +106,7 @@ const stateDot: Record<ApiState, string> = { checking: 'bg-slate-300', ok: 'bg-e
           <div
             role="group"
             :aria-label="t('theme.label')"
-            class="flex rounded-lg bg-slate-100 p-0.5 text-xs font-semibold"
+            class="flex rounded-lg bg-stone-200/60 p-0.5 text-xs font-semibold dark:bg-slate-100"
           >
             <button
               v-for="th in THEMES"
@@ -125,7 +125,7 @@ const stateDot: Record<ApiState, string> = { checking: 'bg-slate-300', ok: 'bg-e
           <div
             role="group"
             :aria-label="t('nav.uiLanguage')"
-            class="flex rounded-lg bg-slate-100 p-0.5 text-xs font-semibold"
+            class="flex rounded-lg bg-stone-200/60 p-0.5 text-xs font-semibold dark:bg-slate-100"
           >
             <button
               v-for="l in LOCALES"

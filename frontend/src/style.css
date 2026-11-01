@@ -9,6 +9,22 @@
 @theme {
   --font-sans: 'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* The light theme's neutrals are warm: every slate-* class renders with
+     Tailwind's stone values, so borders, muted text and tints suit the linen
+     canvas. The .dark block below sets all of these itself, so dark mode keeps
+     its cool slate. */
+  --color-slate-50: oklch(98.5% 0.001 106.423);
+  --color-slate-100: oklch(97% 0.001 106.424);
+  --color-slate-200: oklch(92.3% 0.003 48.717);
+  --color-slate-300: oklch(86.9% 0.005 56.366);
+  --color-slate-400: oklch(70.9% 0.01 56.259);
+  --color-slate-500: oklch(55.3% 0.013 58.071);
+  --color-slate-600: oklch(44.4% 0.011 73.639);
+  --color-slate-700: oklch(37.4% 0.01 67.558);
+  --color-slate-800: oklch(26.8% 0.007 34.298);
+  --color-slate-900: oklch(21.6% 0.006 56.043);
+  --color-slate-950: oklch(14.7% 0.004 49.25);
 }
 
 /* The well the SMS phone and the email card sit in: a dotted canvas. */
@@ -18,11 +34,15 @@
   background-size: 14px 14px;
 }
 
-/* The page sits on a faint brand wash so white cards lift off it. */
+/* The page sits on a linen canvas with a faint coral and amber wash, so white
+   cards lift off it gently. */
+:root:not(.dark) body {
+  background-color: #f7f5f0;
+}
 body {
   background-image:
-    radial-gradient(60rem 30rem at 85% -10%, color-mix(in oklab, var(--color-indigo-100) 55%, transparent), transparent 70%),
-    radial-gradient(50rem 25rem at -10% 0%, color-mix(in oklab, var(--color-violet-100) 45%, transparent), transparent 70%);
+    radial-gradient(60rem 30rem at 85% -10%, color-mix(in oklab, #f4462a 6%, transparent), transparent 70%),
+    radial-gradient(50rem 25rem at -10% 0%, color-mix(in oklab, #f59e0b 5%, transparent), transparent 70%);
   background-repeat: no-repeat;
   font-feature-settings: 'ss01', 'cv11';
 }
