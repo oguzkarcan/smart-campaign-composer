@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { ApiError, generateSegment, getCampaign } from '@/api/client'
 import type { Campaign, CampaignStatus, Person } from '@/api/types'
 import AudienceCounts from '@/components/AudienceCounts.vue'
 import AudiencePeople from '@/components/AudiencePeople.vue'
+import BriefPill from '@/components/BriefPill.vue'
 import ChannelIcon from '@/components/ChannelIcon.vue'
 import ContentSection from '@/components/ContentSection.vue'
 import DeliveryDashboard from '@/components/DeliveryDashboard.vue'
@@ -15,6 +16,7 @@ import StepProgress from '@/components/StepProgress.vue'
 import { channelLabel, editableStatuses, formatDateTime, formatNumber } from '@/lib/format'
 import { locale, t } from '@/lib/i18n'
 import { describeRule } from '@/lib/segment'
+import { defaultStep, type StepNumber } from '@/lib/steps'
 
 const props = defineProps<{ id: number }>()
 
@@ -26,6 +28,7 @@ const generating = ref(false)
 const contentBusy = ref(false)
 // "Preview as this person": a matching user whose data fills the previews.
 const previewPerson = ref<Person | null>(null)
+const activeStep = ref<StepNumber>(1)
 
 let controller: AbortController | undefined
 
@@ -37,7 +40,9 @@ async function load(id: number) {
   loadError.value = null
   segmentError.value = null
   try {
-    campaign.value = await getCampaign(id, controller.signal)
+    const c = await getCampaign(id, controller.signal)
+    activeStep.value = defaultStep(c.status)
+    campaign.value = c
   } catch (e) {
     if (!controller.signal.aborted) loadError.value = e
   }
@@ -50,16 +55,23 @@ const notFound = computed(() => loadError.value instanceof ApiError && loadError
 const rule = computed(() => (campaign.value?.segment_rule ? describeRule(campaign.value.segment_rule, locale.value) : null))
 const delivering = computed(() => !!campaign.value && !editableStatuses.includes(campaign.value.status))
 
-// Approval happens at the bottom of the page; bring the new dashboard into
-// view. Cancelling a schedule goes back to the messages.
+// Approving opens the live dashboard; cancelling a schedule goes back to the
+// messages.
 watch(
   () => [campaign.value?.id, delivering.value] as const,
-  async ([id, now], [prevId, before]) => {
+  ([id, now], [prevId, before]) => {
     if (id === undefined || id !== prevId || now === before) return // a load, not a change
-    await nextTick()
-    document.getElementById(now ? 'delivery-heading' : 'content-heading')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    activeStep.value = now ? 3 : 2
   },
 )
+// The Audience step can be taller than the screen; each step starts at the top.
+watch(activeStep, () => window.scrollTo({ top: 0 }))
+
+// Previewing as someone is only visible next to the messages.
+function selectPerson(person: Person | null) {
+  previewPerson.value = person
+  if (person && campaign.value?.contents?.length) activeStep.value = 2
+}
 
 // The live stream carries status changes (sending → completed).
 function onDeliveryStatus(status: CampaignStatus) {
@@ -89,8 +101,8 @@ async function regenerate() {
 </script>
 
 <template>
-  <div class="space-y-6">
-    <RouterLink to="/" class="inline-flex items-center gap-1 text-sm font-medium text-slate-500 hover:text-indigo-600">
+  <div class="space-y-3">
+    <RouterLink v-if="!campaign" to="/" class="inline-flex items-center gap-1 text-sm font-medium text-slate-500 hover:text-indigo-600">
       {{ t('nav.back') }}
     </RouterLink>
 
@@ -109,67 +121,58 @@ async function regenerate() {
     </div>
 
     <template v-else>
-      <header class="relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div
-          class="pointer-events-none absolute -top-24 -right-16 size-72 rounded-full bg-linear-to-br from-indigo-100 to-violet-100 opacity-70 blur-3xl"
-          aria-hidden="true"
-        />
-        <div class="relative space-y-5 px-5 pt-6 pb-5 sm:px-6">
-          <div class="flex flex-wrap items-start justify-between gap-4">
-            <div class="space-y-1.5">
-              <div class="flex flex-wrap items-center gap-3">
-                <h1 class="text-2xl font-bold tracking-tight text-slate-900">{{ t('campaign.title', { id: campaign.id }) }}</h1>
-                <StatusBadge :status="campaign.status" />
-              </div>
-              <p class="flex items-center gap-1.5 text-sm text-slate-500">
-                <svg viewBox="0 0 20 20" class="size-4" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-                  <circle cx="10" cy="10" r="7.5" />
-                  <path d="M10 6v4l2.5 1.5" stroke-linecap="round" />
-                </svg>
-                {{ createdAt }}
-              </p>
-            </div>
-            <div class="flex items-center gap-2 text-sm">
-              <span class="sr-only">{{ t('campaign.channels') }}</span>
-              <span
-                v-for="ch in campaign.channels"
-                :key="ch"
-                class="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 font-medium text-slate-700 shadow-xs"
-              >
-                <ChannelIcon :channel="ch" class="size-4 text-indigo-600" />
-                {{ channelLabel(ch) }}
-              </span>
-            </div>
+      <header class="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-4 py-2">
+          <div class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+            <RouterLink to="/" class="text-sm font-medium text-slate-500 hover:text-indigo-600">{{ t('nav.back') }}</RouterLink>
+            <h1 class="text-lg font-bold tracking-tight text-slate-900">{{ t('campaign.title', { id: campaign.id }) }}</h1>
+            <StatusBadge :status="campaign.status" />
+            <span class="text-xs text-slate-500">{{ createdAt }}</span>
           </div>
-          <figure class="relative rounded-xl border border-amber-200/70 bg-amber-50/70 py-4 pr-4 pl-14">
-            <span class="absolute inset-y-3 left-0 w-1 rounded-r-full bg-amber-400" aria-hidden="true" />
-            <svg
-              viewBox="0 0 24 24"
-              class="absolute top-4 left-5 size-6 text-amber-500"
-              fill="currentColor"
-              aria-hidden="true"
+          <div class="flex items-center gap-1.5 text-xs">
+            <span class="sr-only">{{ t('campaign.channels') }}</span>
+            <span
+              v-for="ch in campaign.channels"
+              :key="ch"
+              class="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-0.5 font-medium text-slate-700 shadow-xs"
             >
-              <path d="M9.5 6C6.5 6.6 4.5 9 4.5 12.3V18h5.6v-5.6H7.4c.1-2 1.2-3.3 2.6-3.8L9.5 6zm9.4 0c-3 .6-5 3-5 6.3V18h5.6v-5.6h-2.7c.1-2 1.2-3.3 2.6-3.8L18.9 6z" />
-            </svg>
-            <p class="text-xs font-bold tracking-wider uppercase text-amber-800 mb-1 flex items-center gap-1.5"><span aria-hidden="true">✦</span> {{ t('new.brief') }}</p>
-            <blockquote class="text-[15px] leading-relaxed whitespace-pre-line text-slate-800">{{ campaign.brief }}</blockquote>
-          </figure>
+              <ChannelIcon :channel="ch" class="size-3.5 text-indigo-600" />
+              {{ channelLabel(ch) }}
+            </span>
+          </div>
         </div>
-        <div class="relative border-t border-slate-100 bg-slate-50/70 px-5 py-4 sm:px-6">
-          <StepProgress :status="campaign.status" :matched="campaign.audience?.matched" />
+        <div class="border-t border-slate-100 p-2">
+          <StepProgress :status="campaign.status" :matched="campaign.audience?.matched" :active="activeStep" @select="activeStep = $event" />
         </div>
       </header>
 
-      <DeliveryDashboard
+      <!-- Hidden steps stay mounted: unsaved drafts, a running generation and the
+           live delivery stream all live in them. -->
+      <div
         v-if="delivering"
-        :campaign-id="campaign.id"
-        :channels="campaign.channels"
-        :approved-at="campaign.approved_at"
-        :scheduled-at="campaign.scheduled_at"
-        :updated-at="campaign.updated_at"
-        @status="onDeliveryStatus"
-        @update="campaign = $event"
-      />
+        v-show="activeStep === 3"
+        id="step-panel-delivery"
+        role="tabpanel"
+        aria-labelledby="step-tab-delivery"
+        class="space-y-3"
+      >
+        <BriefPill :brief="campaign.brief" />
+        <DeliveryDashboard
+          :campaign-id="campaign.id"
+          :channels="campaign.channels"
+          :approved-at="campaign.approved_at"
+          :scheduled-at="campaign.scheduled_at"
+          :updated-at="campaign.updated_at"
+          @status="onDeliveryStatus"
+          @update="campaign = $event"
+        />
+      </div>
+
+      <div v-show="activeStep === 1" id="step-panel-audience" role="tabpanel" aria-labelledby="step-tab-audience" class="space-y-3">
+        <figure class="rounded-xl border border-amber-200/70 bg-amber-50/70 px-4 py-3">
+          <p class="text-xs font-bold tracking-wider uppercase text-amber-800 mb-1 flex items-center gap-1.5"><span aria-hidden="true">✦</span> {{ t('new.brief') }}</p>
+          <blockquote class="text-[15px] leading-relaxed whitespace-pre-line text-slate-800">{{ campaign.brief }}</blockquote>
+        </figure>
 
       <SectionShell
         :step="1"
@@ -224,19 +227,22 @@ async function regenerate() {
             :matched="campaign.audience.matched"
             :rule-key="JSON.stringify(campaign.segment_rule)"
             :selected="previewPerson"
-            @select="previewPerson = $event"
+            @select="selectPerson"
           />
         </div>
       </SectionShell>
 
-      <ContentSection
-        v-if="campaign.segment_rule"
-        :campaign="campaign"
-        :preview-person="previewPerson"
-        @update="campaign = $event"
-        @clear-preview="previewPerson = null"
-        @busy="contentBusy = $event"
-      />
+      </div>
+
+      <div v-if="campaign.segment_rule" v-show="activeStep === 2" id="step-panel-messages" role="tabpanel" aria-labelledby="step-tab-messages">
+        <ContentSection
+          :campaign="campaign"
+          :preview-person="previewPerson"
+          @update="campaign = $event"
+          @select-person="selectPerson"
+          @busy="contentBusy = $event"
+        />
+      </div>
     </template>
   </div>
 </template>

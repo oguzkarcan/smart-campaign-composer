@@ -3,6 +3,7 @@ import type { MessageKey } from './i18n'
 
 export type StepKey = 'audience' | 'messages' | 'delivery'
 export type StepState = 'done' | 'current' | 'upcoming' | 'failed'
+export type StepNumber = 1 | 2 | 3
 
 export interface Step {
   key: StepKey
@@ -39,5 +40,19 @@ export function campaignSteps(status: CampaignStatus): Step[] {
       return [audienceDone, messagesDone, { key: 'delivery', state: 'done', detail: 'steps.delivery.completed' }]
     case 'failed':
       return [audienceDone, messagesDone, { key: 'delivery', state: 'failed', detail: 'steps.delivery.failed' }]
+  }
+}
+
+// defaultStep is the step a campaign page opens on: where the marketer's next
+// action is, or the live dashboard once the messages are approved.
+export function defaultStep(status: CampaignStatus): StepNumber {
+  switch (status) {
+    case 'draft':
+      return 1
+    case 'audience_ready':
+    case 'content_ready':
+      return 2
+    default:
+      return 3
   }
 }

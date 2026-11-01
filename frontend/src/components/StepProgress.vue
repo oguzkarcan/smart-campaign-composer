@@ -3,59 +3,48 @@ import { computed } from 'vue'
 import type { CampaignStatus } from '@/api/types'
 import { formatNumber } from '@/lib/format'
 import { t } from '@/lib/i18n'
-import { campaignSteps, type StepKey, type StepState } from '@/lib/steps'
+import { campaignSteps, type StepNumber, type StepState } from '@/lib/steps'
 
-const props = defineProps<{ status: CampaignStatus; matched?: number }>()
+const props = defineProps<{ status: CampaignStatus; matched?: number; active: StepNumber }>()
+const emit = defineEmits<{ select: [step: StepNumber] }>()
 
+// The tabs of the campaign workspace; a step opens once the campaign reached it.
 const steps = computed(() => campaignSteps(props.status))
-
-// Each step links to its section on the page.
-const anchors: Record<StepKey, string> = {
-  audience: 'audience-heading',
-  messages: 'content-heading',
-  delivery: 'delivery-heading',
-}
 
 const circle: Record<StepState, string> = {
   done: 'bg-emerald-600 text-white shadow-sm',
-  current: 'bg-indigo-600 text-white shadow-sm ring-4 ring-indigo-100',
+  current: 'bg-indigo-600 text-white shadow-sm ring-2 ring-indigo-100',
   upcoming: 'bg-white text-slate-400 ring-1 ring-slate-300',
-  failed: 'bg-rose-600 text-white shadow-sm ring-4 ring-rose-100',
-}
-// The connector after a step fills once the step is done.
-const line: Record<StepState, string> = {
-  done: 'w-full bg-emerald-500',
-  current: 'w-1/2 bg-linear-to-r from-indigo-500 to-indigo-300',
-  upcoming: 'w-0',
-  failed: 'w-0',
-}
-
-function go(key: StepKey) {
-  document.getElementById(anchors[key])?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  failed: 'bg-rose-600 text-white shadow-sm ring-2 ring-rose-100',
 }
 </script>
 
 <template>
-  <nav :aria-label="t('steps.label')">
-    <ol class="flex items-center">
-      <li v-for="(s, i) in steps" :key="s.key" class="flex flex-1 items-center last:flex-none">
-        <button
-          type="button"
-          class="group flex min-w-0 items-center gap-3 rounded-xl py-1 pr-2 text-left"
-          :aria-current="s.state === 'current' ? 'step' : undefined"
-          :disabled="s.state === 'upcoming'"
-          @click="go(s.key)"
-        >
-          <span
-            class="flex size-9 shrink-0 items-center justify-center rounded-full transition-shadow"
+  <div role="tablist" :aria-label="t('steps.label')" class="grid grid-cols-3 gap-1 rounded-xl bg-slate-100 p-1">
+    <button
+      v-for="(s, i) in steps"
+      :id="`step-tab-${s.key}`"
+      :key="s.key"
+      type="button"
+      role="tab"
+      class="flex min-w-0 items-center gap-2.5 rounded-lg px-2.5 py-1 text-left transition-colors disabled:cursor-not-allowed"
+      :class="active === i + 1 ? 'bg-white shadow-sm' : 'enabled:hover:bg-white/60'"
+      :aria-selected="active === i + 1"
+      :aria-controls="`step-panel-${s.key}`"
+      :aria-current="s.state === 'current' ? 'step' : undefined"
+      :disabled="s.state === 'upcoming'"
+      @click="emit('select', (i + 1) as StepNumber)"
+    >
+      <span
+            class="hidden size-7 shrink-0 items-center sm:flex justify-center rounded-full transition-shadow"
             :class="circle[s.state]"
             aria-hidden="true"
           >
-            <svg v-if="s.state === 'done'" viewBox="0 0 20 20" class="size-4.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <svg v-if="s.state === 'done'" viewBox="0 0 20 20" class="size-4" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
               <path d="M4.5 10.5l3.5 3.5 7.5-8" />
             </svg>
-            <span v-else-if="s.state === 'failed'" class="text-sm font-bold">!</span>
-            <svg v-else viewBox="0 0 20 20" class="size-4.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <span v-else-if="s.state === 'failed'" class="text-xs font-bold">!</span>
+            <svg v-else viewBox="0 0 20 20" class="size-4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
               <template v-if="s.key === 'audience'">
                 <circle cx="7.5" cy="7" r="2.75" />
                 <path d="M2.5 16c.6-2.7 2.6-4.25 5-4.25s4.4 1.55 5 4.25" />
@@ -71,25 +60,14 @@ function go(key: StepKey) {
               </template>
             </svg>
           </span>
-          <span class="min-w-0">
-            <span class="block text-[11px] font-semibold tracking-wider text-slate-400 uppercase">
-              {{ String(i + 1).padStart(2, '0') }}
-            </span>
-            <span
-              class="block text-sm font-semibold group-enabled:group-hover:text-indigo-700"
-              :class="s.state === 'upcoming' ? 'text-slate-400' : 'text-slate-900'"
-            >
-              {{ t(`steps.${s.key}`) }}
-            </span>
-            <span class="hidden truncate text-xs text-slate-500 sm:block">
-              {{ t(s.detail, { n: formatNumber(matched ?? 0) }) }}
-            </span>
-          </span>
-        </button>
-        <span v-if="i < steps.length - 1" class="mx-2 h-1 flex-1 overflow-hidden rounded-full bg-slate-200 sm:mx-4" aria-hidden="true">
-          <span class="block h-full rounded-full transition-all duration-500" :class="line[s.state]" />
+      <span class="min-w-0 leading-tight">
+        <span class="block truncate text-sm font-semibold" :class="s.state === 'upcoming' ? 'text-slate-400' : active === i + 1 ? 'text-indigo-700' : 'text-slate-800'">
+          {{ i + 1 }}. {{ t(`steps.${s.key}`) }}
         </span>
-      </li>
-    </ol>
-  </nav>
+        <span class="hidden truncate text-xs text-slate-500 sm:block">
+          {{ t(s.detail, { n: formatNumber(matched ?? 0) }) }}
+        </span>
+      </span>
+    </button>
+  </div>
 </template>

@@ -296,8 +296,10 @@ Beyond the core scope (Day 6): scheduled sending (`send_at` on approval,
 with "send now" and "cancel schedule" while it waits),
 messages in each recipient's language (Turkish / English, generated,
 edited and sent per language), and a marketer-oriented UI with a `TR | EN`
-interface switch, light / dark themes, a step bar, SMS / email previews and
-a read-only list of matching people to preview the messages as.
+interface switch, light / dark themes, a campaign page split into Audience,
+Messages and Delivery steps, a Message Studio that fits one screen on desktop
+(one channel editor, approval bar and device preview side by side) and a
+read-only list of matching people to preview the messages as.
 
 ### Unfinished scope and known gaps
 

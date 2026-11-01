@@ -525,12 +525,24 @@ listed in the [README](README.md#unfinished-scope-and-known-gaps).
   validation rule's wording.
 - **Marketer-first campaign page.** A step bar (Audience → Messages →
   Delivery, from the campaign status by a tested pure function) shows where
-  the campaign is and links to each section. Messages are previewed as
+  the campaign is and switches between its steps. Messages are previewed as
   they arrive: SMS as a phone bubble, email as an inbox card, filled in for
   a sample recipient of that language. Technical detail stays one click
   away instead of in the way: the segment rule JSON and the model's raw
   streamed output are in collapsed `<details>`, and generation shows a
   progress card.
+- **Campaign page as a step workspace, Message Studio on one screen.** Only
+  the active step shows; the page opens on the step with the next action
+  (`defaultStep`), and approving moves to Delivery. Hidden steps stay mounted
+  (`v-show`, not `v-if`): unsaved drafts, a running generation and the live
+  delivery stream live in those components, and unmounting would lose or
+  cancel them. For the same reason every editor stays mounted while one
+  language and channel is shown, and a dot marks unsaved or invalid text
+  on the tabs that hide it. The desktop studio has a fixed height tied to the
+  viewport: the textarea takes the spare room, the approval bar is always
+  visible, and very long text scrolls inside its field or device. Editors
+  report their draft to the studio, which owns the single device preview.
+  Below the `lg` breakpoint the columns stack and the page scrolls.
 - **"Preview as this person"** picks a user from the matching-people table;
   their first name and city fill the SMS bubble and email card (only the two
   allowed variables, as the worker renders), the SMS shows their phone and

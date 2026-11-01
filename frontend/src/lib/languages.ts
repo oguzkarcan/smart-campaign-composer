@@ -1,5 +1,12 @@
-import type { Campaign, Language } from '@/api/types'
+import type { Campaign, Language, Person } from '@/api/types'
 import { LANGUAGES } from '@/api/types'
+
+// A typical recipient of each language for the previews, unless the marketer
+// picks a real one from the audience.
+export const SAMPLE_RECIPIENTS: Record<Language, Pick<Person, 'first_name' | 'city' | 'phone' | 'email'>> = {
+  tr: { first_name: 'Ayşe', city: 'İstanbul', phone: '+90 555 000 00 00', email: 'ayse@example.com' },
+  en: { first_name: 'Emily', city: 'İzmir', phone: '+90 555 000 00 01', email: 'emily@example.com' },
+}
 
 export interface LanguageTab {
   language: Language

@@ -157,3 +157,7 @@ segment DSL + validator + SQL compiler + consent.
   workflow step bar, numbered section cards, split audience / message layouts,
   delivery KPI cards, list and composer polish; showcase screenshots in
   `docs/images/` embedded in the README.
+- [x] 3. Zero-scroll Message Studio: Audience / Messages / Delivery as step tabs
+  (`defaultStep`, hidden steps stay mounted), one-channel editor with brief pill
+  and docked approval bar beside a device preview with a person selector; approving
+  switches to Delivery.

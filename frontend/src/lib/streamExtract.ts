@@ -121,3 +121,11 @@ export function extractPartial(text: string): PartialContent {
   }
   return out
 }
+
+// writingChannel is the channel a streamed answer has reached, so the studio
+// can show the field being written. Answers follow the schema's order, SMS
+// first; null until a field has started.
+export function writingChannel(p: PartialContent): 'sms' | 'email' | null {
+  if (p.email) return 'email'
+  return p.sms ? 'sms' : null
+}

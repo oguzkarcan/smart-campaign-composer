@@ -149,7 +149,7 @@ const stateDot: Record<ApiState, string> = { checking: 'bg-slate-300', ok: 'bg-e
         <button type="button" class="font-medium underline" @click="checkHealth">{{ t('api.checkAgain') }}</button>
       </div>
     </div>
-    <main class="mx-auto max-w-6xl px-4 py-8">
+    <main class="mx-auto max-w-6xl px-4 py-5">
       <RouterView />
     </main>
   </div>

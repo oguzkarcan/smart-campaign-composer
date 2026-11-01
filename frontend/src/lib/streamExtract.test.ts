@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { extractPartial } from './streamExtract'
+import { extractPartial, writingChannel } from './streamExtract'
 
 const full = JSON.stringify({
   sms: { body: 'Merhaba {{first_name}}, sepetin seni bekliyor!' },
@@ -55,5 +55,13 @@ describe('extractPartial', () => {
 
   it('stops at the end of the answer', () => {
     expect(extractPartial('{"sms": {"body": "a"}} {"sms": {"body": "b"}}')).toEqual({ sms: { body: 'a' } })
+  })
+})
+
+describe('writingChannel', () => {
+  it('follows the answer from SMS to email', () => {
+    expect(writingChannel(extractPartial('{"sms":'))).toBeNull()
+    expect(writingChannel(extractPartial('{"sms":{"body":"Mer'))).toBe('sms')
+    expect(writingChannel(extractPartial('{"sms":{"body":"Merhaba"},"email":{"subject":"Se'))).toBe('email')
   })
 })
