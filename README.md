@@ -128,6 +128,7 @@ DECISIONS.md                           Detailed architecture & trade-off log
 
 ## Known limitations & production roadmap
 
+- **Message broker at scale (RabbitMQ):** At case-study volume (5,000 users, 100 msg/s per channel), PostgreSQL `FOR UPDATE SKIP LOCKED` keeps queue and state in one transactional store with zero extra infrastructure. At multi-million message scale, approval would write to a transactional outbox and publish to **RabbitMQ** (per-channel exchanges, delayed retry queues via TTL/DLX, and consumer prefetch matching the rate budget) to offload polling and row-lock contention from Postgres while keeping `messages.id` as the provider `Idempotency-Key`.
 - **Consent at claim time:** Consent is checked when queueing at approval; re-checking `users.<ch>_opt_in` in the worker's `Claim` query would cover opt-outs during a scheduled wait.
 - **Distributed rate limiting:** The token bucket is per-worker process (`Claim` itself is multi-worker safe via `SKIP LOCKED`); multiple worker replicas would share a Redis/Postgres bucket.
 - **SMS encoding:** Enforces the case's 160-character limit; production Turkish SMS (`ş, ğ, ı, İ`) would use a GSM-7 / UCS-2 (70-char) segment calculator.
